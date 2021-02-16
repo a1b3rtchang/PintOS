@@ -58,7 +58,36 @@ static void start_process(void* file_name_) {
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load(file_name, &if_.eip, &if_.esp);
+  /* Parse and separate file and args */
+  int argc = 0;
+  char* saveptr1 = NULL;
+  char* token;
+  // char* saveptr2 = NULL;
+  /* Store arg words on user stack */
+  token = strtok_r(file_name, " ", &saveptr1);
+  success = load(token, &if_.eip, &if_.esp);
+  while (token) {
+    argc++;
+    token = strtok_r(NULL, " ", &saveptr1);
+  }
+  int arglen = 0;
+  char* argv[argc];
+  int i = argc - 1;
+  saveptr1 = NULL;
+  token = strtok_r(file_name, " ", &saveptr1);
+  while (token) {
+    arglen = ((int)strlen(token)) + 1;
+    if_.esp -= arglen;
+    memcpy((int *)if_.esp, token, arglen);
+    argv[i] = if_.esp;
+    i--;
+    token = strtok_r(NULL, " ", &saveptr1);
+  }
+  if_.esp -= ((int)if_.esp % 4); // stack-align
+  for (i = 0; i < argc; i++) {
+    if_.esp -= 4;
+    *(int *)if_.esp = (int)argv[i]; /* argv is array of pointers */
+  } 
 
   /* If load failed, quit. */
   palloc_free_page(file_name);
