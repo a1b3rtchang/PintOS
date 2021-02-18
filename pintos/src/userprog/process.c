@@ -66,12 +66,13 @@ static void start_process(void* file_name_) {
   /* Store arg words on user stack */
   token = strtok_r(file_name, " ", &saveptr1);
   success = load(token, &if_.eip, &if_.esp);
+  int debug_len = (int)if_.esp;
   while (token) {
     argc++;
     token = strtok_r(NULL, " ", &saveptr1);
   }
   int arglen = 0;
-  char* argv[argc];
+  int argv[argc];
   int i = argc - 1;
   saveptr1 = NULL;
   token = strtok_r(file_name, " ", &saveptr1);
@@ -79,13 +80,13 @@ static void start_process(void* file_name_) {
     arglen = ((int)strlen(token)) + 1;
     if_.esp -= arglen;
     memcpy((int*)if_.esp, token, arglen);
-    argv[i] = if_.esp;
+    argv[i] = (int)if_.esp;
     i--;
     token = strtok_r(NULL, " ", &saveptr1);
   }
-  if_.esp -= ((int)if_.esp % 4); // stack-align
+  if_.esp -= ((unsigned int)if_.esp % 4); // stack-align
 
-  if_.esp -= ((int)if_.esp - ((argc + 3) * 4)) % 16; // 16byte stack-align
+  if_.esp -= ((unsigned int)if_.esp - ((argc + 3) * 4)) % 16; // 16byte stack-align
 
   /* Null terminate argv by convention */
   if_.esp -= 4;
@@ -93,9 +94,9 @@ static void start_process(void* file_name_) {
 
   for (i = 0; i < argc; i++) {
     if_.esp -= 4;
-    *(int*)if_.esp = (int)argv[i]; /* argv is array of pointers */
+    *(int*)if_.esp = argv[i]; /* argv is array of pointers */
   }
-  int argv_p = if_.esp;
+  int argv_p = (int)if_.esp;
 
   /* push argv char ** */
   if_.esp -= 4;

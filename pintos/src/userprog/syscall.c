@@ -7,10 +7,10 @@
 struct lock filesys_lock;
 static void syscall_handler(struct intr_frame*);
 
-void syscall_init(void) { 
-  intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall"); 
+void syscall_init(void) {
+  intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall");
   lock_init(&filesys_lock);
-  }
+}
 
 static void syscall_handler(struct intr_frame* f UNUSED) {
   uint32_t* args = ((uint32_t*)f->esp);
@@ -44,12 +44,11 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       lock_acquire(&filesys_lock);
       int fd = args[1];
       if (fd == 0) {
-         //system_error_exit(-1);
-      } else if(fd == 1) {
+        //system_error_exit(-1);
+      } else if (fd == 1) {
         // void putbuf(const char* buffer, size_t n)
-        putbuf((char *) args[2], args[3]);
-      } else if(fd == 2) {
-
+        putbuf((char*)args[2], args[3]);
+      } else if (fd == 2) {
       }
       lock_release(&filesys_lock);
       break;
@@ -60,5 +59,4 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       printf("%s: practice(%d)\n", thread_current()->name, args[1]);
       break;
   }
-
 }
