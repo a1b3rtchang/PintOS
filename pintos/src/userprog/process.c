@@ -78,16 +78,34 @@ static void start_process(void* file_name_) {
   while (token) {
     arglen = ((int)strlen(token)) + 1;
     if_.esp -= arglen;
-    memcpy((int *)if_.esp, token, arglen);
+    memcpy((int*)if_.esp, token, arglen);
     argv[i] = if_.esp;
     i--;
     token = strtok_r(NULL, " ", &saveptr1);
   }
   if_.esp -= ((int)if_.esp % 4); // stack-align
+
+  if_.esp -= ((int)if_.esp - ((argc + 3) * 4)) % 16; // 16byte stack-align
+
+  /* Null terminate argv by convention */
+  if_.esp -= 4;
+  *(int*)if_.esp = 0;
+
   for (i = 0; i < argc; i++) {
     if_.esp -= 4;
-    *(int *)if_.esp = (int)argv[i]; /* argv is array of pointers */
-  } 
+    *(int*)if_.esp = (int)argv[i]; /* argv is array of pointers */
+  }
+  int argv_p = if_.esp;
+
+  /* push argv char ** */
+  if_.esp -= 4;
+  *(int*)if_.esp = argv_p;
+  /* push argc */
+  if_.esp -= 4;
+  *(int*)if_.esp = argc;
+  /* push return address */
+  if_.esp -= 4;
+  *(int*)if_.esp = 0;
 
   /* If load failed, quit. */
   palloc_free_page(file_name);
@@ -430,7 +448,7 @@ static bool setup_stack(void** esp) {
   if (kpage != NULL) {
     success = install_page(((uint8_t*)PHYS_BASE) - PGSIZE, kpage, true);
     if (success)
-      *esp = PHYS_BASE - 20;
+      *esp = PHYS_BASE;
     else
       palloc_free_page(kpage);
   }
