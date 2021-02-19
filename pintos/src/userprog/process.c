@@ -46,6 +46,11 @@ tid_t process_execute(const char* file_name) {
   return tid;
 }
 
+void push(void** esp, int value) {
+  *esp -= 4;
+  *(int*)*esp = value;
+}
+
 /* A thread function that loads a user process and starts it
    running. */
 static void start_process(void* file_name_) {
@@ -64,11 +69,11 @@ static void start_process(void* file_name_) {
   char* token;
   char file_name_copy[strlen(file_name) + 1];
   strlcpy(file_name_copy, file_name, sizeof(file_name_copy));
-  // char* saveptr2 = NULL;
   /* Store arg words on user stack */
   token = strtok_r(file_name, " ", &saveptr1);
   char* actual_file_name = token;
-  strlcpy(thread_current()->name, actual_file_name, strlen(actual_file_name) + 1);
+  strlcpy(thread_current()->name, actual_file_name,
+          strlen(actual_file_name) + 1); /* Change thread name to match executable name */
   success = load(token, &if_.eip, &if_.esp);
   while (token) {
     argc++;
@@ -78,7 +83,7 @@ static void start_process(void* file_name_) {
   int argv[argc];
   int i = argc - 1;
   saveptr1 = NULL;
-  file_name = file_name_copy;
+  file_name = file_name_copy; /* restore file_name incase modified by strtok_r */
   token = strtok_r(file_name, " ", &saveptr1);
   while (token) {
     arglen = ((int)strlen(token)) + 1;
@@ -88,29 +93,19 @@ static void start_process(void* file_name_) {
     i--;
     token = strtok_r(NULL, " ", &saveptr1);
   }
-  if_.esp -= ((unsigned int)if_.esp % 4); // stack-align
 
-  if_.esp -= ((unsigned int)if_.esp - ((argc + 3) * 4)) % 16; // 16byte stack-align
+  if_.esp -= ((unsigned int)if_.esp - ((argc + 3) * 4)) % 16; /* 16byte stack-align */
 
-  /* Null terminate argv by convention */
-  if_.esp -= 4;
-  *(int*)if_.esp = 0;
+  push(&if_.esp, 0); /* Null terminate argv by convention */
 
   for (i = 0; i < argc; i++) {
-    if_.esp -= 4;
-    *(int*)if_.esp = argv[i]; /* argv is array of pointers */
+    push(&if_.esp, argv[i]); /* argv is array of pointers */
   }
   int argv_p = (int)if_.esp;
 
-  /* push argv char ** */
-  if_.esp -= 4;
-  *(int*)if_.esp = argv_p;
-  /* push argc */
-  if_.esp -= 4;
-  *(int*)if_.esp = argc;
-  /* push return address */
-  if_.esp -= 4;
-  *(int*)if_.esp = 0;
+  push(&if_.esp, argv_p); /* push argv char ** */
+  push(&if_.esp, argc);   /* push argc */
+  push(&if_.esp, 0);      /* push return address */
 
   /* If load failed, quit. */
   palloc_free_page(actual_file_name);
