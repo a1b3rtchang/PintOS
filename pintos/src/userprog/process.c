@@ -62,11 +62,14 @@ static void start_process(void* file_name_) {
   int argc = 0;
   char* saveptr1 = NULL;
   char* token;
+  char file_name_copy[strlen(file_name) + 1];
+  strlcpy(file_name_copy, file_name, sizeof(file_name_copy));
   // char* saveptr2 = NULL;
   /* Store arg words on user stack */
   token = strtok_r(file_name, " ", &saveptr1);
+  char* actual_file_name = token;
+  strlcpy(thread_current()->name, actual_file_name, strlen(actual_file_name) + 1);
   success = load(token, &if_.eip, &if_.esp);
-  int debug_len = (int)if_.esp;
   while (token) {
     argc++;
     token = strtok_r(NULL, " ", &saveptr1);
@@ -75,6 +78,7 @@ static void start_process(void* file_name_) {
   int argv[argc];
   int i = argc - 1;
   saveptr1 = NULL;
+  file_name = file_name_copy;
   token = strtok_r(file_name, " ", &saveptr1);
   while (token) {
     arglen = ((int)strlen(token)) + 1;
@@ -109,7 +113,7 @@ static void start_process(void* file_name_) {
   *(int*)if_.esp = 0;
 
   /* If load failed, quit. */
-  palloc_free_page(file_name);
+  palloc_free_page(actual_file_name);
   if (!success)
     thread_exit();
 
