@@ -12,9 +12,43 @@ void syscall_init(void) {
   lock_init(&filesys_lock);
 }
 
+bool correct_args(uint32_t* args) {
+  switch(args[0]) {
+    case SYS_EXIT || SYS_PRACTICE || SYS_EXEC || SYS_WAIT:
+      return args[1] != NULL;
+    case SYS_HALT:
+      return args[1] == NULL;
+
+  }
+}
+
+// frees current thread and associated wait info struct 
+void system_exit(int err) {
+  struct thread* curr_thread = thread_current();
+  struct list parents = curr_thread->parent_pwis;
+  struct p_wait_info* pwi;
+  struct list_elem* iter;
+  for (iter=list_begin(&parents); iter != list_end(&parents); iter = list_next(iter)) {
+    pwi = list_entry(iter, struct p_wait_info, elem);  
+    lock_acquire(&(pwi->access));
+    pwi->ref_count--;
+    pwi->exit_status = err;
+    if (pwi->ref_count == 0) {
+      free(list_remove(pwi));
+    } else {
+      lock_release(&(pwi->access));
+      sema_up(&(pwi->wait_sem)); 
+    }
+  }
+  printf("%s: exit(%d)\n", thread_current()->name, err);
+  thread_exit();
+}
+
 static void syscall_handler(struct intr_frame* f UNUSED) {
   uint32_t* args = ((uint32_t*)f->esp);
+  if (args == NULL || !is_user_vaddr(args) || pagedir_get_page()) {
 
+  }
   /*
    * The following print statement, if uncommented, will print out the syscall
    * number whenever a process enters a system call. You might find it useful
@@ -58,5 +92,10 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       f->eax = args[1] + 1;
       printf("%s: practice(%d)\n", thread_current()->name, args[1]);
       break;
+    case SYS_HALT:
+      // TODO: free files + pwaitinfos + other
+      shutdown_power_off();
+      break;
+
   }
 }

@@ -87,6 +87,7 @@ struct p_wait_info {
   int ref_count;
   struct semaphore wait_sem;
   struct lock access;
+  struct list_elem elem;
 };
 
 struct thread {
