@@ -72,8 +72,12 @@ static void start_process(void* file_name_) {
   /* Store arg words on user stack */
   token = strtok_r(file_name, " ", &saveptr1);
   char* actual_file_name = token;
-  strlcpy(thread_current()->name, actual_file_name,
-          strlen(actual_file_name) + 1); /* Change thread name to match executable name */
+  struct thread* curr_thread = thread_current();
+  strlcpy(curr_thread->name, actual_file_name,
+          strlen(actual_file_name) + 1);  /* Change thread name to match executable name */
+  list_init(&(curr_thread->parent_pwis)); /* inialize pwi and file lists */
+  list_init(&(curr_thread->child_pwis));  /* inialize pwi and file lists */
+  list_init(&(curr_thread->files));       /* inialize pwi and file lists */
   success = load(token, &if_.eip, &if_.esp);
   while (token) {
     argc++;

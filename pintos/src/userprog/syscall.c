@@ -1,9 +1,10 @@
 #include "userprog/syscall.h"
 #include <stdio.h>
 #include <syscall-nr.h>
+#include <stdlib.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
-
+#include "threads/vaddr.h"
 struct lock filesys_lock;
 static void syscall_handler(struct intr_frame*);
 
@@ -13,31 +14,35 @@ void syscall_init(void) {
 }
 
 bool correct_args(uint32_t* args) {
-  switch(args[0]) {
-    case SYS_EXIT || SYS_PRACTICE || SYS_EXEC || SYS_WAIT:
-      return args[1] != NULL;
+  switch (args[0]) {
+    case SYS_EXIT:
+    case SYS_PRACTICE:
+    case SYS_EXEC:
+    case SYS_WAIT:
+      return is_user_vaddr(&args[1]);
     case SYS_HALT:
-      return args[1] == NULL;
-
+      return true;
   }
+  return true;
 }
 
-// frees current thread and associated wait info struct 
+// frees current thread and associated wait info struct
 void system_exit(int err) {
   struct thread* curr_thread = thread_current();
-  struct list parents = curr_thread->parent_pwis;
+  struct list* parents = &(curr_thread->parent_pwis);
+  size_t size = list_size(parents);
   struct p_wait_info* pwi;
   struct list_elem* iter;
-  for (iter=list_begin(&parents); iter != list_end(&parents); iter = list_next(iter)) {
-    pwi = list_entry(iter, struct p_wait_info, elem);  
+  for (iter = list_begin(parents); iter != list_end(parents); iter = list_next(iter)) {
+    pwi = list_entry(iter, struct p_wait_info, elem);
     lock_acquire(&(pwi->access));
     pwi->ref_count--;
     pwi->exit_status = err;
     if (pwi->ref_count == 0) {
-      free(list_remove(pwi));
+      free(list_remove(&(pwi->elem)));
     } else {
       lock_release(&(pwi->access));
-      sema_up(&(pwi->wait_sem)); 
+      sema_up(&(pwi->wait_sem));
     }
   }
   printf("%s: exit(%d)\n", thread_current()->name, err);
@@ -46,8 +51,9 @@ void system_exit(int err) {
 
 static void syscall_handler(struct intr_frame* f UNUSED) {
   uint32_t* args = ((uint32_t*)f->esp);
-  if (args == NULL || !is_user_vaddr(args) || pagedir_get_page()) {
-
+  if (args == NULL || !is_user_vaddr(args) ||
+      pagedir_get_page(thread_current()->pagedir, args) == NULL || !correct_args(args)) {
+    system_exit(-1);
   }
   /*
    * The following print statement, if uncommented, will print out the syscall
@@ -61,8 +67,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   switch (args[0]) {
     case SYS_EXIT:
       f->eax = args[1];
-      printf("%s: exit(%d)\n", thread_current()->name, args[1]);
-      thread_exit();
+      system_exit(args[1]);
       break;
     case SYS_WRITE:
       //int write(int fd, const void* buffer, unsigned size) {
@@ -96,6 +101,5 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       // TODO: free files + pwaitinfos + other
       shutdown_power_off();
       break;
-
   }
 }
