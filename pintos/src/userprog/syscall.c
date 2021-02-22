@@ -5,21 +5,27 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
-struct lock filesys_lock;
+#include "process.h"
+static struct lock filesys_lock;
+static struct lock p_exec_lock;
 static void syscall_handler(struct intr_frame*);
 
 void syscall_init(void) {
   intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall");
   lock_init(&filesys_lock);
+  lock_init(&p_exec_lock);
 }
 
 bool correct_args(uint32_t* args) {
   switch (args[0]) {
     case SYS_EXIT:
     case SYS_PRACTICE:
-    case SYS_EXEC:
     case SYS_WAIT:
-      return is_user_vaddr(&args[1]);
+      return is_user_vaddr(&args[1]); /* Check if input is stored in valid memory */
+    case SYS_EXEC:
+      return is_user_vaddr(&args[1]) &&
+             is_user_vaddr(
+                 args[1]); /* Check if location of char* is valid AND if where cha * is pointing to is also valid */
     case SYS_HALT:
       return true;
   }
@@ -92,6 +98,11 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       lock_release(&filesys_lock);
       break;
     case SYS_CREATE:
+      break;
+    case SYS_EXEC:
+      lock_acquire(&p_exec_lock);
+      f->eax = process_execute((char*)args[1]);
+      lock_release(&p_exec_lock);
       break;
     case SYS_PRACTICE:
       f->eax = args[1] + 1;

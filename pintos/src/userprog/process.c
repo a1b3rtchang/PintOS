@@ -19,6 +19,7 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
+static struct p_wait_info wait_for_load;
 static struct semaphore temporary;
 static thread_func start_process NO_RETURN;
 static bool load(const char* cmdline, void (**eip)(void), void** esp);
@@ -32,6 +33,7 @@ tid_t process_execute(const char* file_name) {
   tid_t tid;
 
   sema_init(&temporary, 0);
+  sema_init(&(wait_for_load.wait_sem), 0);
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page(0);
@@ -41,8 +43,12 @@ tid_t process_execute(const char* file_name) {
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create(file_name, PRI_DEFAULT, start_process, fn_copy);
+  sema_down(&(wait_for_load.wait_sem));
   if (tid == TID_ERROR)
     palloc_free_page(fn_copy);
+  if (wait_for_load.exit_status == -1) {
+    tid = -1;
+  }
   return tid;
 }
 
@@ -79,6 +85,7 @@ static void start_process(void* file_name_) {
   list_init(&(curr_thread->child_pwis));  /* inialize pwi and file lists */
   list_init(&(curr_thread->files));       /* inialize pwi and file lists */
   success = load(token, &if_.eip, &if_.esp);
+
   while (token) {
     argc++;
     token = strtok_r(NULL, " ", &saveptr1);
@@ -113,8 +120,13 @@ static void start_process(void* file_name_) {
 
   /* If load failed, quit. */
   palloc_free_page(actual_file_name);
-  if (!success)
+  if (!success) {
+    wait_for_load.exit_status = -1;
+    sema_up(&(wait_for_load.wait_sem));
     thread_exit();
+  }
+  wait_for_load.exit_status = 1;
+  sema_up(&(wait_for_load.wait_sem));
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
