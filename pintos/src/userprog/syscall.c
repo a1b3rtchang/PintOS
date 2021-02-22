@@ -35,22 +35,20 @@ bool correct_args(uint32_t* args) {
 // frees current thread and associated wait info struct
 void system_exit(int err) {
   struct thread* curr_thread = thread_current();
-  struct list* parents = &(curr_thread->parent_pwis);
-  size_t size = list_size(parents);
-  struct p_wait_info* pwi;
+  struct p_wait_info* parent = &(curr_thread->parent_pwi);
+  struct list* children = &(curr_thread->child_pwis);
   struct list_elem* iter;
-  for (iter = list_begin(parents); iter != list_end(parents); iter = list_next(iter)) {
-    pwi = list_entry(iter, struct p_wait_info, elem);
-    lock_acquire(&(pwi->access));
-    pwi->ref_count--;
-    pwi->exit_status = err;
-    if (pwi->ref_count == 0) {
-      free(list_remove(&(pwi->elem)));
+  if (parent != NULL) {
+    lock_acquire(&(parent->access));
+    parent->ref_count--;
+    if (parent->ref_count == 0) {
+      palloc_free_page((void*)parent);
     } else {
-      lock_release(&(pwi->access));
-      sema_up(&(pwi->wait_sem));
+      sema_up(&(parent->wait_sem));
+      lock_release(&(parent->access));
     }
   }
+
   printf("%s: exit(%d)\n", thread_current()->name, err);
   thread_exit();
 }
@@ -89,9 +87,10 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       lock_acquire(&filesys_lock);
       int fd = args[1];
       if (fd == 0) {
-        //system_error_exit(-1);
+        system_exit(-1);
       } else if (fd == 1) {
         // void putbuf(const char* buffer, size_t n)
+        // 100bytes. reasonable to break it down.
         putbuf((char*)args[2], args[3]);
       } else if (fd == 2) {
       }
@@ -111,6 +110,8 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     case SYS_HALT:
       // TODO: free files + pwaitinfos + other
       shutdown_power_off();
+      break;
+    case SYS_WAIT:
       break;
   }
 }

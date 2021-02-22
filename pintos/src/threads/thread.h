@@ -82,6 +82,7 @@ typedef int tid_t;
    ready state is on the run queue, whereas only a thread in the
    blocked state is on a semaphore wait list. */
 struct p_wait_info {
+  tid_t child;
   bool parent_is_waiting;
   int exit_status;
   int ref_count;
@@ -93,8 +94,9 @@ struct p_wait_info {
 struct thread {
   /* New things */
   struct list child_pwis;
-  struct list parent_pwis;
+  struct p_wait_info* parent_pwi;
   struct list files;
+
   /* Owned by thread.c. */
   tid_t tid;                 /* Thread identifier. */
   enum thread_status status; /* Thread state. */
