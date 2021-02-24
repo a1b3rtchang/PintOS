@@ -18,6 +18,7 @@
 #include "threads/synch.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "threads/malloc.h"
 
 static struct semaphore temporary;
 static thread_func start_process NO_RETURN;
@@ -32,17 +33,16 @@ struct args {
    before process_execute() returns.  Returns the new process's
    thread id, or TID_ERROR if the thread cannot be created. */
 tid_t process_execute(const char* file_name) {
-  char* fn_copy;
   tid_t tid;
-  struct args* argument = palloc_get_page(0);
+  struct args* argument = malloc(sizeof(struct args));
   if (argument == NULL) {
     return TID_ERROR;
   }
-  argument->pwi = palloc_get_page(0);
+  argument->pwi = malloc(sizeof(struct p_wait_info));
   if ((argument->pwi) == NULL) {
     return TID_ERROR;
   }
-  argument->file_name = palloc_get_page(0);
+  argument->file_name = malloc(sizeof(char) * (strlen(file_name) + 1));
   if ((argument->file_name) == NULL) {
     return TID_ERROR;
   }
@@ -52,25 +52,29 @@ tid_t process_execute(const char* file_name) {
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
 
-  strlcpy((argument->file_name), file_name, PGSIZE);
+  strlcpy((argument->file_name), file_name, strlen(file_name) + 1);
   sema_init(&(argument->pwi->wait_sem), 0);
   struct p_wait_info* pwi = argument->pwi;
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create(file_name, PRI_DEFAULT, start_process, (void*)argument);
   struct thread* curr_thread = thread_current();
   if (tid == TID_ERROR) {
-    palloc_free_page(argument->pwi);
-    palloc_free_page(argument->file_name);
-    palloc_free_page(argument);
+    free(argument->pwi);
+    free(argument->file_name);
+    free(argument);
     return TID_ERROR;
   }
   sema_down(&(pwi->wait_sem));
   if ((pwi->exit_status) == -1) {
     tid = -1;
   } else {
+    if (curr_thread->child_pwis.head.next == NULL) {
+      list_init(&(curr_thread->child_pwis));
+    }
     list_push_back(&(curr_thread->child_pwis), &(pwi->elem));
     pwi->child = tid;
   }
+  free(argument);
   return tid;
 }
 
@@ -105,7 +109,7 @@ static void start_process(void* argument) {
   token = strtok_r(file_name, " ", &saveptr1);
   struct thread* curr_thread = thread_current();
   strlcpy(curr_thread->name, token,
-          strlen(token) + 1); /* Change thread name to match executable name */
+          strlen(token) + 1);            /* Change thread name to match executable name */
   list_init(&(curr_thread->child_pwis)); /* inialize pwi and file lists */
   list_init(&(curr_thread->files));      /* inialize pwi and file lists */
   success = load(token, &if_.eip, &if_.esp);
@@ -116,10 +120,6 @@ static void start_process(void* argument) {
     sema_up(&(pwi_val->wait_sem));
     thread_exit();
   }
-  pwi_val->exit_status = 1;
-  curr_thread->parent_pwi = pwi_val;
-  pwi_val->ref_count = 2;
-  sema_up(&(pwi_val->wait_sem));
 
   while (token) {
     argc++;
@@ -152,8 +152,12 @@ static void start_process(void* argument) {
   push(&if_.esp, argc);   /* push argc */
   push(&if_.esp, 0);      /* push return address */
 
-  palloc_free_page((void *) file_name);
-  palloc_free_page((void *) argument_val);
+  pwi_val->exit_status = 1;
+  curr_thread->parent_pwi = pwi_val;
+  pwi_val->ref_count = 2;
+  lock_init(&(pwi_val->access));
+  sema_up(&(pwi_val->wait_sem));
+  free(file_name);
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in

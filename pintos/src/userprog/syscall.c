@@ -30,8 +30,10 @@ bool correct_args(uint32_t* args) {
     case SYS_WAIT:
       return is_user_vaddr(&args[1]); /* Check if input is stored in valid memory */
     case SYS_EXEC:
-      return is_user_vaddr((void *) &args[1]) &&
-             is_user_vaddr((void *) args[1]); /* Check if location of char* is valid AND if where cha * is pointing to is also valid */
+      return is_user_vaddr((void*)&args[1]) &&
+             is_user_vaddr(
+                 (void*)args
+                     [1]); /* Check if location of char* is valid AND if where cha * is pointing to is also valid */
     case SYS_HALT:
       return true;
   }
@@ -48,7 +50,7 @@ void system_exit(int err) {
     lock_acquire(&(parent->access));
     parent->ref_count--;
     if (parent->ref_count == 0) {
-      palloc_free_page((void*)parent);
+      free(parent);
     } else {
       sema_up(&(parent->wait_sem));
       lock_release(&(parent->access));
@@ -61,7 +63,7 @@ void system_exit(int err) {
 
 static void syscall_handler(struct intr_frame* f UNUSED) {
   uint32_t* args = ((uint32_t*)f->esp);
-  if (args == NULL || !is_user_vaddr((void*) args) ||
+  if (args == NULL || !is_user_vaddr((void*)args) ||
       pagedir_get_page(thread_current()->pagedir, args) == NULL || !correct_args(args)) {
     system_exit(-1);
   }
