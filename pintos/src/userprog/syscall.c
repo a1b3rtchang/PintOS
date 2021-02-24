@@ -6,9 +6,16 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "process.h"
+#include "pagedir.h"
+#include "devices/shutdown.h"
+#include "threads/palloc.h"
+
 static struct lock filesys_lock;
 static struct lock p_exec_lock;
 static void syscall_handler(struct intr_frame*);
+void syscall_init(void);
+bool correct_args(uint32_t*);
+void system_exit(int);
 
 void syscall_init(void) {
   intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall");
@@ -23,9 +30,8 @@ bool correct_args(uint32_t* args) {
     case SYS_WAIT:
       return is_user_vaddr(&args[1]); /* Check if input is stored in valid memory */
     case SYS_EXEC:
-      return is_user_vaddr(&args[1]) &&
-             is_user_vaddr(
-                 args[1]); /* Check if location of char* is valid AND if where cha * is pointing to is also valid */
+      return is_user_vaddr((void *) &args[1]) &&
+             is_user_vaddr((void *) args[1]); /* Check if location of char* is valid AND if where cha * is pointing to is also valid */
     case SYS_HALT:
       return true;
   }
@@ -35,7 +41,7 @@ bool correct_args(uint32_t* args) {
 // frees current thread and associated wait info struct
 void system_exit(int err) {
   struct thread* curr_thread = thread_current();
-  struct p_wait_info* parent = &(curr_thread->parent_pwi);
+  struct p_wait_info* parent = curr_thread->parent_pwi;
   struct list* children = &(curr_thread->child_pwis);
   struct list_elem* iter;
   if (parent != NULL) {
@@ -55,7 +61,7 @@ void system_exit(int err) {
 
 static void syscall_handler(struct intr_frame* f UNUSED) {
   uint32_t* args = ((uint32_t*)f->esp);
-  if (args == NULL || !is_user_vaddr(args) ||
+  if (args == NULL || !is_user_vaddr((void*) args) ||
       pagedir_get_page(thread_current()->pagedir, args) == NULL || !correct_args(args)) {
     system_exit(-1);
   }

@@ -54,7 +54,7 @@ tid_t process_execute(const char* file_name) {
 
   strlcpy((argument->file_name), file_name, PGSIZE);
   sema_init(&(argument->pwi->wait_sem), 0);
-
+  struct p_wait_info* pwi = argument->pwi;
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create(file_name, PRI_DEFAULT, start_process, (void*)argument);
   struct thread* curr_thread = thread_current();
@@ -64,12 +64,12 @@ tid_t process_execute(const char* file_name) {
     palloc_free_page(argument);
     return TID_ERROR;
   }
-  sema_down(&(argument->pwi->wait_sem));
-  if ((argument->pwi->exit_status) == -1) {
+  sema_down(&(pwi->wait_sem));
+  if ((pwi->exit_status) == -1) {
     tid = -1;
   } else {
-    list_push_back(&(curr_thread->child_pwis), &(argument->pwi->elem));
-    argument->pwi->child = tid;
+    list_push_back(&(curr_thread->child_pwis), &(pwi->elem));
+    pwi->child = tid;
   }
   return tid;
 }
@@ -103,10 +103,9 @@ static void start_process(void* argument) {
   strlcpy(file_name_copy, file_name, sizeof(file_name_copy));
   /* Store arg words on user stack */
   token = strtok_r(file_name, " ", &saveptr1);
-  char* actual_file_name = token;
   struct thread* curr_thread = thread_current();
-  strlcpy(curr_thread->name, actual_file_name,
-          strlen(actual_file_name) + 1); /* Change thread name to match executable name */
+  strlcpy(curr_thread->name, token,
+          strlen(token) + 1); /* Change thread name to match executable name */
   list_init(&(curr_thread->child_pwis)); /* inialize pwi and file lists */
   list_init(&(curr_thread->files));      /* inialize pwi and file lists */
   success = load(token, &if_.eip, &if_.esp);
@@ -130,8 +129,7 @@ static void start_process(void* argument) {
   int argv[argc];
   int i = argc - 1;
   saveptr1 = NULL;
-  file_name = file_name_copy; /* restore file_name incase modified by strtok_r */
-  token = strtok_r(file_name, " ", &saveptr1);
+  token = strtok_r(file_name_copy, " ", &saveptr1);
   while (token) {
     arglen = ((int)strlen(token)) + 1;
     if_.esp -= arglen;
@@ -154,9 +152,8 @@ static void start_process(void* argument) {
   push(&if_.esp, argc);   /* push argc */
   push(&if_.esp, 0);      /* push return address */
 
-  /* If load failed, quit. */
-  palloc_free_page(file_name);
-  palloc_free_page(argument_val);
+  palloc_free_page((void *) file_name);
+  palloc_free_page((void *) argument_val);
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
