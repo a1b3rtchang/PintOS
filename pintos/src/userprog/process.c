@@ -56,6 +56,7 @@ tid_t process_execute(const char* file_name) {
   struct p_wait_info* pwi = argument->pwi;
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create(file_name, PRI_DEFAULT, start_process, (void*)argument);
+
   struct thread* curr_thread = thread_current();
   if (tid == TID_ERROR) {
     free(argument->pwi);
@@ -71,9 +72,9 @@ tid_t process_execute(const char* file_name) {
       list_init(&(curr_thread->child_pwis));
     }
     list_push_back(&(curr_thread->child_pwis), &(pwi->elem));
-    pwi->child = tid;
-    pwi->parent_is_waiting = false;
   }
+  pwi->child = tid;
+  pwi->parent_is_waiting = false;
   free(argument);
   return tid;
 }
