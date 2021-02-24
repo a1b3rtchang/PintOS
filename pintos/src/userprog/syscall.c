@@ -30,15 +30,14 @@ bool correct_args(uint32_t* args) {
     case SYS_WAIT:
       return is_user_vaddr(&args[1]); /* Check if input is stored in valid memory */
     case SYS_EXEC:
-      return is_user_vaddr(&args[1]) && is_user_vaddr((void *)args[1]) &&
+      return is_user_vaddr(&args[1]) && is_user_vaddr((void*)args[1]) &&
              pagedir_get_page(thread_current()->pagedir, &args[1]) != NULL &&
-             pagedir_get_page(thread_current()->pagedir, (void *) args[1]) !=
+             pagedir_get_page(thread_current()->pagedir, (void*)args[1]) !=
                  NULL; /* Check if location of char* is valid AND if where cha * is pointing to is also valid */
     case SYS_HALT:
       return true;
     case SYS_WRITE:
-      is_user_vaddr((void *) &args[2]) && is_user_vaddr((void *) args[3]);
-
+      is_user_vaddr((void*)&args[2]) && is_user_vaddr((void*)args[3]);
   }
   return true;
 }
@@ -105,8 +104,6 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
         // 100bytes. reasonable to break it down.
         putbuf((char*)args[2], args[3]);
       } else if (fd == 2) {
-        
-      } else{
         /*if ((thread_current -> files) == NULL){
             struct file_info* new_file;
             new_file -> fd = 3;
@@ -146,7 +143,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       shutdown_power_off();
       break;
     case SYS_WAIT:
-      f->eax = process_wait(args[1]); 
+      f->eax = process_wait(args[1]);
       break;
   }
 }
