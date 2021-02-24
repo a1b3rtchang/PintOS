@@ -146,32 +146,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       shutdown_power_off();
       break;
     case SYS_WAIT:
-    {
-      int childpid = args[1];
-      struct list children = thread_current()->child_pwis;
-      bool present = false;
-      for (struct list_elem* iter = list_begin(&children); iter != list_end(&children); iter = list_next(iter)) {
-        struct p_wait_info *pwi = list_entry(iter, struct p_wait_info, elem);
-        if (pwi->child == childpid) {
-          present = true;
-          if (pwi->parent_is_waiting) {
-            f->eax = -1;
-          } else {
-            pwi->parent_is_waiting = true;
-            sema_down(&pwi->wait_sem);
-            if (pwi->exit_status == -1) {
-              f->eax = -1;
-            } else {
-              f->eax = pwi->exit_status;
-            }
-          }
-          break;
-        }
-      }
-      if (!present) {
-        f->eax = -1;
-      }
+      f->eax = process_wait(args[1]); 
       break;
-    }
   }
 }

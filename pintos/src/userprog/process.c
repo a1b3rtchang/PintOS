@@ -20,7 +20,6 @@
 #include "threads/vaddr.h"
 #include "threads/malloc.h"
 
-static struct semaphore temporary;
 static thread_func start_process NO_RETURN;
 static bool load(const char* cmdline, void (**eip)(void), void** esp);
 void push(void** esp, int value);
@@ -49,8 +48,6 @@ tid_t process_execute(const char* file_name) {
     return TID_ERROR;
   }
 
-  sema_init(&temporary, 0);
-
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
 
@@ -70,9 +67,10 @@ tid_t process_execute(const char* file_name) {
   if ((pwi->exit_status) == -1) {
     tid = -1;
   } else {
-    if (curr_thread->child_pwis.head.next != NULL) {
-      list_push_back(&(curr_thread->child_pwis), &(pwi->elem));
-    }
+    if (curr_thread->child_pwis.head.next == NULL) { // for the OS thread
+      list_init(&(curr_thread->child_pwis));
+    } 
+    list_push_back(&(curr_thread->child_pwis), &(pwi->elem));
     pwi->child = tid;
     pwi->parent_is_waiting = false;
   }
@@ -180,9 +178,22 @@ static void start_process(void* argument) {
 
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
-int process_wait(tid_t child_tid UNUSED) {
-  sema_down(&temporary);
-  return 0;
+int process_wait(tid_t child_tid) {
+  struct list children = thread_current()->child_pwis;
+  struct list_elem* iter;
+    for (iter = list_begin(&children); iter != list_end(&children); iter = list_next(iter)) {
+      struct p_wait_info *pwi = list_entry(iter, struct p_wait_info, elem);
+      if (pwi->child == child_tid) {
+        if (pwi->parent_is_waiting) {
+          return -1;
+        } else {
+          sema_down(&pwi->wait_sem);
+          pwi->parent_is_waiting = true;
+          return pwi->exit_status;
+        }
+      }
+    }
+    return -1;
 }
 
 /* Free the current process's resources. */
@@ -205,7 +216,6 @@ void process_exit(void) {
     pagedir_activate(NULL);
     pagedir_destroy(pd);
   }
-  sema_up(&temporary);
 }
 
 /* Sets up the CPU for running user code in the current
