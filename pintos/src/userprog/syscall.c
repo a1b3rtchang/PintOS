@@ -113,7 +113,6 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       break;
     case SYS_PRACTICE:
       f->eax = args[1] + 1;
-      printf("%s: practice(%d)\n", thread_current()->name, args[1]);
       break;
     case SYS_HALT:
       // TODO: free files + pwaitinfos + other
