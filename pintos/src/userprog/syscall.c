@@ -30,15 +30,14 @@ bool correct_args(uint32_t* args) {
     case SYS_WAIT:
       return is_user_vaddr(&args[1]); /* Check if input is stored in valid memory */
     case SYS_EXEC:
-      return is_user_vaddr(&args[1]) && is_user_vaddr((void *)args[1]) &&
+      return is_user_vaddr(&args[1]) && is_user_vaddr((void*)args[1]) &&
              pagedir_get_page(thread_current()->pagedir, &args[1]) != NULL &&
-             pagedir_get_page(thread_current()->pagedir, (void *) args[1]) !=
+             pagedir_get_page(thread_current()->pagedir, (void*)args[1]) !=
                  NULL; /* Check if location of char* is valid AND if where cha * is pointing to is also valid */
     case SYS_HALT:
       return true;
     case SYS_WRITE:
-      is_user_vaddr((void *) &args[2]) && is_user_vaddr((void *) args[3]);
-
+      is_user_vaddr((void*)&args[2]) && is_user_vaddr((void*)args[3]);
   }
   return true;
 }
@@ -47,6 +46,33 @@ bool correct_args(uint32_t* args) {
 void system_exit(int err) {
   struct thread* curr_thread = thread_current();
   struct p_wait_info* parent = curr_thread->parent_pwi;
+  struct list* children = &(curr_thread->child_pwis);
+  struct list_elem* iter;
+  struct p_wait_info* pwi = NULL;
+
+  while (list_size(children) > 0) {
+    pwi = list_entry(list_pop_back(children), struct p_wait_info, elem);
+    lock_acquire(&(pwi->access));
+    pwi->ref_count--;
+    if (pwi->ref_count == 0) {
+      free(pwi);
+    } else {
+      lock_release(&(pwi->access));
+    }
+  }
+  /*
+  for (iter = list_begin(children); iter != list_end(children); iter = list_next(iter)) {
+	  pwi = list_entry(iter, struct p_wait_info, elem);
+	  
+	  lock_acquire(&(pwi->access));
+	  pwi->ref_count--;
+	  if (pwi->ref_count == 0) {
+	    free(pwi);
+	  } else {
+	    lock_release(&(pwi->access));
+	  }
+  }
+  */
   // struct list* children = &(curr_thread->child_pwis);
   // struct list_elem* iter;
   if (parent != NULL) {
@@ -56,6 +82,7 @@ void system_exit(int err) {
       free(parent);
     } else {
       parent->exit_status = err;
+      parent->child = -1;
       sema_up(&(parent->wait_sem));
       lock_release(&(parent->access));
     }
@@ -105,8 +132,8 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
         // 100bytes. reasonable to break it down.
         putbuf((char*)args[2], args[3]);
       } else if (fd == 2) {
-        
-      } else{
+
+      } else {
         /*if ((thread_current -> files) == NULL){
             struct file_info* new_file;
             new_file -> fd = 3;
@@ -146,7 +173,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       shutdown_power_off();
       break;
     case SYS_WAIT:
-      f->eax = process_wait(args[1]); 
+      f->eax = process_wait(args[1]);
       break;
   }
 }
