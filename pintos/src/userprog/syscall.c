@@ -24,20 +24,43 @@ void syscall_init(void) {
 }
 
 bool correct_args(uint32_t* args) {
+  struct thread* ct = thread_current();
+  char* byte_check = (char*)args;
+  if (!(is_user_vaddr(&byte_check[0]) && is_user_vaddr(&byte_check[1]) &&
+        is_user_vaddr(&byte_check[2]) && is_user_vaddr(&byte_check[3]) &&
+        pagedir_get_page(ct->pagedir, &byte_check[0]) != NULL &&
+        pagedir_get_page(ct->pagedir, &byte_check[1]) != NULL &&
+        pagedir_get_page(ct->pagedir, &byte_check[2]) != NULL &&
+        pagedir_get_page(ct->pagedir, &byte_check[3]) != NULL))
+    return false;
   switch (args[0]) {
     case SYS_EXIT:
     case SYS_PRACTICE:
     case SYS_WAIT:
-      return is_user_vaddr(&args[1]); /* Check if input is stored in valid memory */
+      return is_user_vaddr(&args[1]) && pagedir_get_page(ct->pagedir, &args[1]) !=
+                                            NULL; /* Check if input is stored in valid memory */
     case SYS_EXEC:
       return is_user_vaddr(&args[1]) && is_user_vaddr((void*)args[1]) &&
-             pagedir_get_page(thread_current()->pagedir, &args[1]) != NULL &&
-             pagedir_get_page(thread_current()->pagedir, (void*)args[1]) !=
+             pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
+             pagedir_get_page(ct->pagedir, (void*)args[1]) !=
                  NULL; /* Check if location of char* is valid AND if where cha * is pointing to is also valid */
     case SYS_HALT:
       return true;
-    case SYS_WRITE:
-      is_user_vaddr((void*)&args[2]) && is_user_vaddr((void*)args[3]);
+    case SYS_WRITE: {
+      bool ret_val = is_user_vaddr(&args[1]) && is_user_vaddr(&args[2]) &&
+                     is_user_vaddr(&args[3]) && pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
+                     pagedir_get_page(ct->pagedir, &args[2]) != NULL &&
+                     pagedir_get_page(ct->pagedir, &args[3]) != NULL;
+
+      for (size_t i = 0; i < (size_t)args[3]; i++) {
+        ret_val = ret_val && is_user_vaddr(&((char*)args[2])[i]) &&
+                  pagedir_get_page(ct->pagedir, &((char*)args[2])[i]);
+        if (!ret_val) {
+          return ret_val;
+        }
+      }
+      return ret_val;
+    }
   }
   return true;
 }
