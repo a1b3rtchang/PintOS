@@ -91,12 +91,18 @@ struct p_wait_info {
   struct list_elem elem;
 };
 
+// struct file_info {
+//    int fd;
+//    FILE* file;
+//    struct list_elem elem;
+
+// };
+
 struct thread {
   /* New things */
   struct list child_pwis;
   struct p_wait_info* parent_pwi;
-  struct list files;
-
+  struct list* files;
   /* Owned by thread.c. */
   tid_t tid;                 /* Thread identifier. */
   enum thread_status status; /* Thread state. */
