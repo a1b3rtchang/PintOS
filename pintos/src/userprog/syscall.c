@@ -8,7 +8,7 @@
 #include "process.h"
 #include "pagedir.h"
 #include "devices/shutdown.h"
-#include "threads/palloc.h"
+#include "threads/malloc.h"
 
 static struct lock filesys_lock;
 static struct lock p_exec_lock;
@@ -36,6 +36,9 @@ bool correct_args(uint32_t* args) {
                      [1]); /* Check if location of char* is valid AND if where cha * is pointing to is also valid */
     case SYS_HALT:
       return true;
+    case SYS_WRITE:
+      is_user_vaddr((void *) &args[2]) && is_user_vaddr((void *) args[3]);
+
   }
   return true;
 }
@@ -44,14 +47,15 @@ bool correct_args(uint32_t* args) {
 void system_exit(int err) {
   struct thread* curr_thread = thread_current();
   struct p_wait_info* parent = curr_thread->parent_pwi;
-  struct list* children = &(curr_thread->child_pwis);
-  struct list_elem* iter;
+  // struct list* children = &(curr_thread->child_pwis);
+  // struct list_elem* iter;
   if (parent != NULL) {
     lock_acquire(&(parent->access));
     parent->ref_count--;
     if (parent->ref_count == 0) {
       free(parent);
     } else {
+      parent->exit_status = err;
       sema_up(&(parent->wait_sem));
       lock_release(&(parent->access));
     }
@@ -101,6 +105,29 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
         // 100bytes. reasonable to break it down.
         putbuf((char*)args[2], args[3]);
       } else if (fd == 2) {
+        
+      } else{
+        /*if ((thread_current -> files) == NULL){
+            struct file_info* new_file;
+            new_file -> fd = 3;
+            filesys_create(args[2], args[3]); 
+            new_file -> file = filesys_open(args[2]); 
+            list_puch_back(thread_current() -> files, &(new_file -> elem))
+            return file_write(new_file.file, (void *) args[2], args[3])
+        } else {
+            struct list_elem* last_elem = list_back(thread_current() -> files);
+            struct file_info* current_file = list_entry(last_elem, file_info, elem); 
+            struct file_info* new_file;
+            new_file -> fd = (current_file -> fd) + 1;
+            filesys_create(args[2], args[3]); 
+            new_file -> file = filesys_open(args[2]); 
+            list_push_back(thread_current() -> files, &(newfile -> elem))
+            return file_write(new_file.file, (void *) args[2], args[3])
+            
+      
+        }
+        // thread_current() -> file_list
+        */
       }
       lock_release(&filesys_lock);
       break;
@@ -120,6 +147,32 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       shutdown_power_off();
       break;
     case SYS_WAIT:
+    {
+      int childpid = args[1];
+      struct list children = thread_current()->child_pwis;
+      bool present = false;
+      for (struct list_elem* iter = list_begin(&children); iter != list_end(&children); iter = list_next(iter)) {
+        struct p_wait_info *pwi = list_entry(iter, struct p_wait_info, elem);
+        if (pwi->child == childpid) {
+          present = true;
+          if (pwi->parent_is_waiting) {
+            f->eax = -1;
+          } else {
+            pwi->parent_is_waiting = true;
+            sema_down(&pwi->wait_sem);
+            if (pwi->exit_status == -1) {
+              f->eax = -1;
+            } else {
+              f->eax = pwi->exit_status;
+            }
+          }
+          break;
+        }
+      }
+      if (!present) {
+        f->eax = -1;
+      }
       break;
+    }
   }
 }

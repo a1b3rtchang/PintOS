@@ -23,6 +23,8 @@
 static struct semaphore temporary;
 static thread_func start_process NO_RETURN;
 static bool load(const char* cmdline, void (**eip)(void), void** esp);
+void push(void** esp, int value);
+
 struct args {
   char* file_name;
   struct p_wait_info* pwi;
@@ -68,11 +70,11 @@ tid_t process_execute(const char* file_name) {
   if ((pwi->exit_status) == -1) {
     tid = -1;
   } else {
-    if (curr_thread->child_pwis.head.next == NULL) {
-      list_init(&(curr_thread->child_pwis));
+    if (curr_thread->child_pwis.head.next != NULL) {
+      list_push_back(&(curr_thread->child_pwis), &(pwi->elem));
     }
-    list_push_back(&(curr_thread->child_pwis), &(pwi->elem));
     pwi->child = tid;
+    pwi->parent_is_waiting = false;
   }
   free(argument);
   return tid;
@@ -111,7 +113,8 @@ static void start_process(void* argument) {
   strlcpy(curr_thread->name, token,
           strlen(token) + 1);            /* Change thread name to match executable name */
   list_init(&(curr_thread->child_pwis)); /* inialize pwi and file lists */
-  list_init(&(curr_thread->files));      /* inialize pwi and file lists */
+  curr_thread->files = malloc(sizeof(struct list));
+  list_init(curr_thread->files);      /* inialize pwi and file lists */
   success = load(token, &if_.eip, &if_.esp);
   if (!success) {
     palloc_free_page(file_name);
