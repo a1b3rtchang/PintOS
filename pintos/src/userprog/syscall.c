@@ -30,9 +30,6 @@ bool correct_args(uint32_t* args) {
     case SYS_WAIT:
       return is_user_vaddr(&args[1]); /* Check if input is stored in valid memory */
     case SYS_EXEC:
-      if (sizeof(args) / sizeof(args[0]) == 1) {
-        return false;
-      }
       return is_user_vaddr(&args[1]) && is_user_vaddr((void*)args[1]) &&
              pagedir_get_page(thread_current()->pagedir, &args[1]) != NULL &&
              pagedir_get_page(thread_current()->pagedir, (void*)args[1]) !=
