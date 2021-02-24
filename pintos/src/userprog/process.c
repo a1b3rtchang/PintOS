@@ -110,8 +110,10 @@ static void start_process(void* argument) {
   token = strtok_r(file_name, " ", &saveptr1);
   struct thread* curr_thread = thread_current();
   strlcpy(curr_thread->name, token,
-          strlen(token) + 1); /* Change thread name to match executable name */
-
+          strlen(token) + 1);            /* Change thread name to match executable name */
+  list_init(&(curr_thread->child_pwis)); /* inialize pwi and file lists */
+  curr_thread->files = malloc(sizeof(struct list));
+  list_init(curr_thread->files); /* inialize pwi and file lists */
   success = load(token, &if_.eip, &if_.esp);
   if (!success) {
     free(file_name);
