@@ -46,33 +46,6 @@ bool correct_args(uint32_t* args) {
 void system_exit(int err) {
   struct thread* curr_thread = thread_current();
   struct p_wait_info* parent = curr_thread->parent_pwi;
-  struct list* children = &(curr_thread->child_pwis);
-  struct list_elem* iter;
-  struct p_wait_info* pwi = NULL;
-
-  while (list_size(children) > 0) {
-    pwi = list_entry(list_pop_back(children), struct p_wait_info, elem);
-    lock_acquire(&(pwi->access));
-    pwi->ref_count--;
-    if (pwi->ref_count == 0) {
-      free(pwi);
-    } else {
-      lock_release(&(pwi->access));
-    }
-  }
-  /*
-  for (iter = list_begin(children); iter != list_end(children); iter = list_next(iter)) {
-	  pwi = list_entry(iter, struct p_wait_info, elem);
-	  
-	  lock_acquire(&(pwi->access));
-	  pwi->ref_count--;
-	  if (pwi->ref_count == 0) {
-	    free(pwi);
-	  } else {
-	    lock_release(&(pwi->access));
-	  }
-  }
-  */
   // struct list* children = &(curr_thread->child_pwis);
   // struct list_elem* iter;
   if (parent != NULL) {
@@ -82,7 +55,6 @@ void system_exit(int err) {
       free(parent);
     } else {
       parent->exit_status = err;
-      parent->child = -1;
       sema_up(&(parent->wait_sem));
       lock_release(&(parent->access));
     }
