@@ -56,6 +56,7 @@ tid_t process_execute(const char* file_name) {
   struct p_wait_info* pwi = argument->pwi;
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create(file_name, PRI_DEFAULT, start_process, (void*)argument);
+
   struct thread* curr_thread = thread_current();
   if (tid == TID_ERROR) {
     free(argument->pwi);
@@ -69,11 +70,11 @@ tid_t process_execute(const char* file_name) {
   } else {
     if (curr_thread->child_pwis.head.next == NULL) { // for the OS thread
       list_init(&(curr_thread->child_pwis));
-    } 
+    }
     list_push_back(&(curr_thread->child_pwis), &(pwi->elem));
-    pwi->child = tid;
-    pwi->parent_is_waiting = false;
   }
+  pwi->child = tid;
+  pwi->parent_is_waiting = false;
   free(argument);
   return tid;
 }
@@ -109,10 +110,8 @@ static void start_process(void* argument) {
   token = strtok_r(file_name, " ", &saveptr1);
   struct thread* curr_thread = thread_current();
   strlcpy(curr_thread->name, token,
-          strlen(token) + 1);            /* Change thread name to match executable name */
-  list_init(&(curr_thread->child_pwis)); /* inialize pwi and file lists */
-  curr_thread->files = malloc(sizeof(struct list));
-  list_init(curr_thread->files);      /* inialize pwi and file lists */
+          strlen(token) + 1); /* Change thread name to match executable name */
+
   success = load(token, &if_.eip, &if_.esp);
   if (!success) {
     free(file_name);
@@ -180,20 +179,23 @@ static void start_process(void* argument) {
    does nothing. */
 int process_wait(tid_t child_tid) {
   struct list children = thread_current()->child_pwis;
+  if (children.head.next == NULL) {
+    return -1;
+  }
   struct list_elem* iter;
-    for (iter = list_begin(&children); iter != list_end(&children); iter = list_next(iter)) {
-      struct p_wait_info *pwi = list_entry(iter, struct p_wait_info, elem);
-      if (pwi->child == child_tid) {
-        if (pwi->parent_is_waiting) {
-          return -1;
-        } else {
-          sema_down(&pwi->wait_sem);
-          pwi->parent_is_waiting = true;
-          return pwi->exit_status;
-        }
+  for (iter = list_begin(&children); iter != list_end(&children); iter = list_next(iter)) {
+    struct p_wait_info* pwi = list_entry(iter, struct p_wait_info, elem);
+    if (pwi->child == child_tid) {
+      if (pwi->parent_is_waiting) {
+        return -1;
+      } else {
+        sema_down(&pwi->wait_sem);
+        pwi->parent_is_waiting = true;
+        return pwi->exit_status;
       }
     }
-    return -1;
+  }
+  return -1;
 }
 
 /* Free the current process's resources. */
