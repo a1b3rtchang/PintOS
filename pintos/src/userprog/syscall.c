@@ -30,9 +30,9 @@ bool correct_args(uint32_t* args) {
     case SYS_WAIT:
       return is_user_vaddr(&args[1]); /* Check if input is stored in valid memory */
     case SYS_EXEC:
-      return is_user_vaddr(&args[1]) && is_user_vaddr(args[1]) &&
+      return is_user_vaddr(&args[1]) && is_user_vaddr((void *)args[1]) &&
              pagedir_get_page(thread_current()->pagedir, &args[1]) != NULL &&
-             pagedir_get_page(thread_current()->pagedir, args[1]) !=
+             pagedir_get_page(thread_current()->pagedir, (void *) args[1]) !=
                  NULL; /* Check if location of char* is valid AND if where cha * is pointing to is also valid */
     case SYS_HALT:
       return true;
