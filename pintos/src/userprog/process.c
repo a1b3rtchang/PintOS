@@ -117,8 +117,7 @@ static void start_process(void* argument) {
   list_init(curr_thread->files);      /* inialize pwi and file lists */
   success = load(token, &if_.eip, &if_.esp);
   if (!success) {
-    palloc_free_page(file_name);
-    palloc_free_page(argument_val);
+    free(file_name);
     pwi_val->exit_status = -1;
     sema_up(&(pwi_val->wait_sem));
     thread_exit();

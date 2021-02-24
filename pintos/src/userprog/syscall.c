@@ -30,10 +30,10 @@ bool correct_args(uint32_t* args) {
     case SYS_WAIT:
       return is_user_vaddr(&args[1]); /* Check if input is stored in valid memory */
     case SYS_EXEC:
-      return is_user_vaddr((void*)&args[1]) &&
-             is_user_vaddr(
-                 (void*)args
-                     [1]); /* Check if location of char* is valid AND if where cha * is pointing to is also valid */
+      return is_user_vaddr(&args[1]) && is_user_vaddr(args[1]) &&
+             pagedir_get_page(thread_current()->pagedir, &args[1]) != NULL &&
+             pagedir_get_page(thread_current()->pagedir, args[1]) !=
+                 NULL; /* Check if location of char* is valid AND if where cha * is pointing to is also valid */
     case SYS_HALT:
       return true;
     case SYS_WRITE:
@@ -140,7 +140,6 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       break;
     case SYS_PRACTICE:
       f->eax = args[1] + 1;
-      printf("%s: practice(%d)\n", thread_current()->name, args[1]);
       break;
     case SYS_HALT:
       // TODO: free files + pwaitinfos + other
