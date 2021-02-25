@@ -109,6 +109,20 @@ void system_exit(int err) {
   struct p_wait_info* parent = curr_thread->parent_pwi;
   // struct list* children = &(curr_thread->child_pwis);
   // struct list_elem* iter;
+  struct list* children = &(curr_thread->child_pwis);
+  struct list_elem* iter;
+  struct p_wait_info* pwi = NULL;
+
+  while (list_size(children) > 0) {
+    pwi = list_entry(list_pop_back(children), struct p_wait_info, elem);
+    lock_acquire(&(pwi->access));
+    pwi->ref_count--;
+    if (pwi->ref_count == 0) {
+      free(pwi);
+    } else {
+      lock_release(&(pwi->access));
+    }
+  }
   if (parent != NULL) {
     lock_acquire(&(parent->access));
     parent->ref_count--;
@@ -123,6 +137,20 @@ void system_exit(int err) {
 
   printf("%s: exit(%d)\n", thread_current()->name, err);
   thread_exit();
+}
+
+struct file_info* get_file_info(int fd) {
+  struct thread* curr_thread = thread_current();
+  struct list_elem* iter;
+  struct file_info* fi;
+  for (iter = list_begin(curr_thread->files); iter != list_end(curr_thread->files);
+       iter = list_next(iter)) {
+    fi = list_entry(iter, struct file_info, elem);
+    if (fi->fd == fd) {
+      return fi;
+    }
+  }
+  return NULL;
 }
 
 static void syscall_handler(struct intr_frame* f UNUSED) {
@@ -179,16 +207,24 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
         // void putbuf(const char* buffer, size_t n)
         // 100bytes. reasonable to break it down.
         putbuf((char*)args[2], args[3]);
-        break;
       } else {
-        if ((thread_current()->files) == NULL) {
-          struct file_info* new_file = malloc(sizeof(struct file_info));
-          new_file->fd = 3;
-          filesys_create(args[2], args[3]);
-          new_file->file = filesys_open(args[2]);
-          list_push_back(thread_current()->files, &(new_file->elem));
-          return file_write(new_file->file, (void*)args[2], args[3]);
+        struct file_info* get_file = get_file_info(args[1]);
+        if (get_file == NULL) {
+          f->eax = -1;
+          lock_release(&filesys_lock);
           break;
+        }
+        f->eax = file_write(get_file->fs, (void*)args[2], args[3]);
+        lock_release(&filesys_lock);
+        break;
+
+        /*if ((thread_current -> files) == NULL){
+            struct file_info* new_file;
+            new_file -> fd = 3;
+            filesys_create(args[2], args[3]);
+            new_file -> file = filesys_open(args[2]);
+            list_puch_back(thread_current() -> files, &(new_file -> elem))
+            return file_write(new_file.file, (void *) args[2], args[3])
         } else {
           /*make
             struct list_elem* last_elem = list_back(thread_current() -> files);
@@ -201,53 +237,40 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
             return file_write(new_file.file, (void *) args[2], args[3]);
             break;
             */
-        }
-      }
-      lock_release(&filesys_lock);
-      break;
-    case SYS_OPEN:;
-      struct file* file_opened = NULL;
-      file_opened = filesys_open((char*)args[1]);
-      if (file_opened == NULL) {
-        system_exit(-1);
-      } else {
-        struct file_info* newfile = malloc(sizeof(struct file_info));
-        newfile->file = file_opened;
-        if (list_empty(thread_current()->files)) {
-          newfile->fd = 2;
-          list_push_back(thread_current()->files, &(newfile->elem));
-        } else {
-          struct list_elem* last_elem = list_back(thread_current()->files);
-          struct file_info* current_file = list_entry(last_elem, struct file_info, elem);
-          newfile->fd = (current_file->fd) + 1;
-          list_push_back(thread_current()->files, &(newfile->elem));
-        }
       }
 
+      lock_release(&filesys_lock);
+      break;
+    case SYS_OPEN: {
+      lock_acquire(&filesys_lock);
+      struct file* opened_file = filesys_open((char*)args[1]);
+      if (opened_file == NULL) {
+        f->eax = -1;
+        lock_release(&filesys_lock);
+        break;
+      }
+      struct file_info* fi = malloc(sizeof(struct file_info));
+      fi->fd = thread_current()->fd_count;
+      thread_current()->fd_count++;
+      fi->fs = opened_file;
+      list_push_back(thread_current()->files, &(fi->elem));
+      f->eax = fi->fd;
+      lock_release(&filesys_lock);
+      break;
+    }
+    case SYS_CLOSE:
+      lock_acquire(&filesys_lock);
+
+      lock_release(&filesys_lock);
+    case SYS_REMOVE:
+      lock_acquire(&filesys_lock);
+      f->eax = filesys_remove((char*)args[1]);
+      lock_release(&filesys_lock);
       break;
     case SYS_CREATE:
-      if (filesys_create((char*)args[1], args[2])) {
-        list_init(thread_current()->files);
-      } else {
-        system_exit(-1);
-      }
-      break;
-    case SYS_EXEC:
-      lock_acquire(&p_exec_lock);
-      f->eax = process_execute((char*)args[1]);
-      lock_release(&p_exec_lock);
-      break;
-    case SYS_PRACTICE:
-      f->eax = args[1] + 1;
+      lock_acquire(&filesys_lock);
+      f->eax = filesys_create((char*)args[1], (off_t)args[2]);
+      lock_release(&filesys_lock);
       break;
   }
-  case SYS_REMOVE:
-    lock_acquire(&filesys_lock);
-    f->eax = filesys_remove((char*)args[1]);
-    lock_release(&filesys_lock);
-    break;
-  case SYS_WAIT:
-    f->eax = process_wait(args[1]);
-    break;
-}
 }
