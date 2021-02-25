@@ -325,5 +325,13 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       }
       lock_release(&filesys_lock);
       break;
+    case SYS_FILESIZE:
+      fi = get_file_info(args[1]);
+      if (fi != NULL) {
+        f->eax = file_length(fi->fs);
+      } else {
+        f->eax = -1;
+      }
+      break;
   }
 }
