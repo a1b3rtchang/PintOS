@@ -77,8 +77,8 @@ bool correct_args(uint32_t* args) {
       return is_user_vaddr(&args[1]) && is_user_vaddr((void*)args[1]) &&
              pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
              pagedir_get_page(ct->pagedir, (void*)args[1]) != NULL && is_user_vaddr(&args[2]) &&
-             pagedir_get_page(ct->pagedir, &args[2]) != NULL && str_checker(&args[1], ct) &&
-             byte_checker(&args[2], ct) && (off_t)args[2] >= 0;
+             pagedir_get_page(ct->pagedir, &args[2]) != NULL && is_user_vaddr((void*)args[2]) &&
+             str_checker(&args[1], ct) && byte_checker(&args[2], ct) && (off_t)args[2] >= 0;
     case SYS_TELL:
       return is_user_vaddr(&args[1]) && is_user_vaddr((void*)args[1]) &&
              pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
@@ -128,7 +128,6 @@ void system_exit(int err) {
   // struct list* children = &(curr_thread->child_pwis);
   // struct list_elem* iter;
   struct list* children = &(curr_thread->child_pwis);
-  struct list_elem* iter;
   struct p_wait_info* pwi = NULL;
 
   while (list_size(children) > 0) {
@@ -152,7 +151,7 @@ void system_exit(int err) {
       lock_release(&(parent->access));
     }
   }
-
+  curr_thread->user_exit = true;
   printf("%s: exit(%d)\n", thread_current()->name, err);
   thread_exit();
 }
@@ -219,36 +218,45 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       // args[2] = pointer to buffer
       // args[3] = the max size we want
       lock_acquire(&filesys_lock);
-      int fd = args[1];
-      if (fd == 0) {
+      if (args[1] == 0) {
         system_exit(-1);
-      } else if (fd == 1) {
+        break;
+      } else if (args[1] == 1) {
         // void putbuf(const char* buffer, size_t n)
         // 100bytes. reasonable to break it down.
         putbuf((char*)args[2], args[3]);
       } else {
+        struct file_info* get_file = get_file_info(args[1]);
+        if (get_file == NULL) {
+          f->eax = -1;
+          lock_release(&filesys_lock);
+          break;
+        }
+        f->eax = file_write(get_file->fs, (void*)args[2], args[3]);
+        lock_release(&filesys_lock);
+        break;
+
         /*if ((thread_current -> files) == NULL){
             struct file_info* new_file;
             new_file -> fd = 3;
-            filesys_create(args[2], args[3]); 
-            new_file -> file = filesys_open(args[2]); 
+            filesys_create(args[2], args[3]);
+            new_file -> file = filesys_open(args[2]);
             list_puch_back(thread_current() -> files, &(new_file -> elem))
             return file_write(new_file.file, (void *) args[2], args[3])
         } else {
+          /*make
             struct list_elem* last_elem = list_back(thread_current() -> files);
-            struct file_info* current_file = list_entry(last_elem, file_info, elem); 
+            struct file_info* current_file = list_entry(last_elem, file_info, elem);
             struct file_info* new_file;
             new_file -> fd = (current_file -> fd) + 1;
-            filesys_create(args[2], args[3]); 
-            new_file -> file = filesys_open(args[2]); 
-            list_push_back(thread_current() -> files, &(newfile -> elem))
-            return file_write(new_file.file, (void *) args[2], args[3])
-            
-      
-        }
-        // thread_current() -> file_list
-        */
+            filesys_create(args[2], args[3]);
+            new_file -> file = filesys_open(args[2]);
+            list_push_back(thread_current() -> files, &(newfile -> elem));
+            return file_write(new_file.file, (void *) args[2], args[3]);
+            break;
+            */
       }
+
       lock_release(&filesys_lock);
       break;
     case SYS_OPEN: {
