@@ -91,12 +91,11 @@ struct p_wait_info {
   struct list_elem elem;
 };
 
-// struct file_info {
-//    int fd;
-//    FILE* file;
-//    struct list_elem elem;
-
-// };
+struct file_info {
+  int fd;
+  struct file* fs;
+  struct list_elem elem;
+};
 
 struct thread {
   /* New things */
@@ -107,9 +106,10 @@ struct thread {
   tid_t tid;                 /* Thread identifier. */
   enum thread_status status; /* Thread state. */
   char name[16];             /* Name (for debugging purposes). */
-  uint8_t* stack;            /* Saved stack pointer. */
-  int priority;              /* Priority. */
-  struct list_elem allelem;  /* List element for all threads list. */
+  int fd_count;
+  uint8_t* stack;           /* Saved stack pointer. */
+  int priority;             /* Priority. */
+  struct list_elem allelem; /* List element for all threads list. */
 
   /* Shared between thread.c and synch.c. */
   struct list_elem elem; /* List element. */
