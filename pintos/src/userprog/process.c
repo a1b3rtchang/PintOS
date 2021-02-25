@@ -229,14 +229,16 @@ void process_exit(void) {
     struct p_wait_info* parent = cur->parent_pwi;
     struct list* children = &(cur->child_pwis);
     struct p_wait_info* pwi = NULL;
-    while (list_size(children) > 0) {
-      pwi = list_entry(list_pop_back(children), struct p_wait_info, elem);
-      lock_acquire(&(pwi->access));
-      pwi->ref_count--;
-      if (pwi->ref_count == 0) {
-        free(pwi);
-      } else {
-        lock_release(&(pwi->access));
+    if (!(children == NULL || children->head.next == NULL)) {
+      while (list_size(children) > 0) {
+        pwi = list_entry(list_pop_back(children), struct p_wait_info, elem);
+        lock_acquire(&(pwi->access));
+        pwi->ref_count--;
+        if (pwi->ref_count == 0) {
+          free(pwi);
+        } else {
+          lock_release(&(pwi->access));
+        }
       }
     }
     if (parent != NULL) {
