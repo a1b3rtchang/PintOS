@@ -9,6 +9,7 @@
 #include "pagedir.h"
 #include "devices/shutdown.h"
 #include "threads/malloc.h"
+#include "filesys/filesys.h"
 
 static struct lock filesys_lock;
 static struct lock p_exec_lock;
@@ -35,12 +36,13 @@ bool byte_checker(void* mem, struct thread* ct) {
 
 bool str_checker(void* str, struct thread* ct) {
   char* str_check = (char*)str;
-  for (int i = 0; str_check[i] != '\0'; i++) {
+  int i;
+  for (i = 0; str_check[i] != '\0'; i++) {
     if (!(is_user_vaddr(&str_check[i]) && pagedir_get_page(ct->pagedir, &str_check[i]))) {
       return false;
     }
   }
-  return true;
+  return is_user_vaddr(&str_check[i]) && pagedir_get_page(ct->pagedir, &str_check[i]);
 }
 
 bool correct_args(uint32_t* args) {
@@ -66,8 +68,11 @@ bool correct_args(uint32_t* args) {
     case SYS_OPEN:
       return is_user_vaddr(&args[1]) && is_user_vaddr((void*)args[1]) && str_checker(&args[1], ct);
     case SYS_CREATE:
-      return is_user_vaddr(&args[1]) && is_user_vaddr(&args[2]) && str_checker(&args[1], ct) &&
-             byte_checker(&args[2], ct);
+      return is_user_vaddr(&args[1]) && is_user_vaddr(args[1]) &&
+             pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
+             pagedir_get_page(ct->pagedir, args[1]) != NULL && args[1] != NULL &&
+             is_user_vaddr(&args[2]) && pagedir_get_page(ct->pagedir, &args[2]) != NULL &&
+             str_checker(&args[1], ct) && byte_checker(&args[2], ct);
     case SYS_TELL:
     case SYS_CLOSE:
     case SYS_FILESIZE:
@@ -185,6 +190,9 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       lock_release(&filesys_lock);
       break;
     case SYS_CREATE:
+      lock_acquire(&filesys_lock);
+      f->eax = filesys_create((char*)args[1], args[2]);
+      lock_release(&filesys_lock);
       break;
     case SYS_EXEC:
       lock_acquire(&p_exec_lock);
