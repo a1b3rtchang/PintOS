@@ -233,7 +233,6 @@ void process_exit(void) {
     }
     printf("%s: exit(%d)\n", thread_current()->name, -1);
   }
-  file_allow_write(filesys_open(cur->name));
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
@@ -248,6 +247,10 @@ void process_exit(void) {
     cur->pagedir = NULL;
     pagedir_activate(NULL);
     pagedir_destroy(pd);
+  }
+  struct file* allow_write = filesys_open(cur->name);
+  if (allow_write != NULL) {
+    file_allow_write(allow_write);
   }
 }
 
