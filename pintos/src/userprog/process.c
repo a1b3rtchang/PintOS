@@ -204,6 +204,7 @@ int process_wait(tid_t child_tid) {
 void process_exit(void) {
   struct thread* cur = thread_current();
   uint32_t* pd;
+
   if (!cur->user_exit) {
     struct p_wait_info* parent = cur->parent_pwi;
     struct list* children = &(cur->child_pwis);
@@ -231,6 +232,7 @@ void process_exit(void) {
     }
     printf("%s: exit(%d)\n", thread_current()->name, -1);
   }
+
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
