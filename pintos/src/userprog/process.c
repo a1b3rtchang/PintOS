@@ -155,6 +155,7 @@ static void start_process(void* argument) {
 
   pwi_val->exit_status = 1;
   curr_thread->parent_pwi = pwi_val;
+  curr_thread->fd_count = 2;
   pwi_val->ref_count = 2;
   lock_init(&(pwi_val->access));
   sema_up(&(pwi_val->wait_sem));

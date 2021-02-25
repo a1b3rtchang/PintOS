@@ -66,13 +66,15 @@ bool correct_args(uint32_t* args) {
       return true;
     case SYS_REMOVE:
     case SYS_OPEN:
-      return is_user_vaddr(&args[1]) && is_user_vaddr((void*)args[1]) && str_checker(&args[1], ct);
+      return is_user_vaddr(&args[1]) && is_user_vaddr((void*)args[1]) &&
+             pagedir_get_page(ct->pagedir, &args[1]) &&
+             pagedir_get_page(ct->pagedir, (void*)args[1]) && str_checker(&args[1], ct);
     case SYS_CREATE:
-      return is_user_vaddr(&args[1]) && is_user_vaddr(args[1]) &&
+      return is_user_vaddr(&args[1]) && is_user_vaddr((void*)args[1]) &&
              pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
-             pagedir_get_page(ct->pagedir, args[1]) != NULL && args[1] != NULL &&
-             is_user_vaddr(&args[2]) && pagedir_get_page(ct->pagedir, &args[2]) != NULL &&
-             str_checker(&args[1], ct) && byte_checker(&args[2], ct);
+             pagedir_get_page(ct->pagedir, (void*)args[1]) != NULL && is_user_vaddr(&args[2]) &&
+             pagedir_get_page(ct->pagedir, &args[2]) != NULL && str_checker(&args[1], ct) &&
+             byte_checker(&args[2], ct) && (off_t)args[2] >= 0;
     case SYS_TELL:
     case SYS_CLOSE:
     case SYS_FILESIZE:
@@ -143,6 +145,21 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       f->eax = args[1];
       system_exit(args[1]);
       break;
+    case SYS_EXEC:
+      lock_acquire(&p_exec_lock);
+      f->eax = process_execute((char*)args[1]);
+      lock_release(&p_exec_lock);
+      break;
+    case SYS_PRACTICE:
+      f->eax = args[1] + 1;
+      break;
+    case SYS_HALT:
+      // TODO: free files + pwaitinfos + other
+      shutdown_power_off();
+      break;
+    case SYS_WAIT:
+      f->eax = process_wait(args[1]);
+      break;
     case SYS_WRITE:
       //int write(int fd, const void* buffer, unsigned size) {
       //return syscall3(SYS_WRITE, fd, buffer, size);
@@ -189,25 +206,32 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       }
       lock_release(&filesys_lock);
       break;
-    case SYS_CREATE:
+    case SYS_OPEN: {
       lock_acquire(&filesys_lock);
-      f->eax = filesys_create((char*)args[1], args[2]);
+      struct file* opened_file = filesys_open((char*)args[1]);
+      if (opened_file == NULL) {
+        f->eax = -1;
+        lock_release(&filesys_lock);
+        break;
+      }
+      struct file_info* fi = malloc(sizeof(struct file_info));
+      fi->fd = thread_current()->fd_count;
+      thread_current()->fd_count++;
+      fi->fs = opened_file;
+      list_push_back(thread_current()->files, &(fi->elem));
+      f->eax = fi->fd;
       lock_release(&filesys_lock);
       break;
-    case SYS_EXEC:
-      lock_acquire(&p_exec_lock);
-      f->eax = process_execute((char*)args[1]);
-      lock_release(&p_exec_lock);
+    }
+    case SYS_REMOVE:
+      lock_acquire(&filesys_lock);
+      f->eax = filesys_remove((char*)args[1]);
+      lock_release(&filesys_lock);
       break;
-    case SYS_PRACTICE:
-      f->eax = args[1] + 1;
-      break;
-    case SYS_HALT:
-      // TODO: free files + pwaitinfos + other
-      shutdown_power_off();
-      break;
-    case SYS_WAIT:
-      f->eax = process_wait(args[1]);
+    case SYS_CREATE:
+      lock_acquire(&filesys_lock);
+      f->eax = filesys_create((char*)args[1], (off_t)args[2]);
+      lock_release(&filesys_lock);
       break;
   }
 }
