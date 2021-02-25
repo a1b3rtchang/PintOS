@@ -159,6 +159,7 @@ static void start_process(void* argument) {
   curr_thread->user_exit = false;
   pwi_val->ref_count = 2;
   lock_init(&(pwi_val->access));
+  file_deny_write(filesys_open(curr_thread->name));
   sema_up(&(pwi_val->wait_sem));
   free(file_name);
 
@@ -232,7 +233,7 @@ void process_exit(void) {
     }
     printf("%s: exit(%d)\n", thread_current()->name, -1);
   }
-
+  file_allow_write(filesys_open(cur->name));
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
