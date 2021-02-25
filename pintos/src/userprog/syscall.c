@@ -82,23 +82,22 @@ bool correct_args(uint32_t* args) {
     case SYS_TELL:
       return is_user_vaddr(&args[1]) && is_user_vaddr((void*)args[1]) &&
              pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
-             pagedir_get_page(ct->pagedir, (void*)args[1]) != NULL && is_user_vaddr(&args[2]) &&
-             pagedir_get_page(ct->pagedir, &args[2]) != NULL && byte_checker(&args[1], ct) &&
-             byte_checker(&args[2], ct) && (off_t)args[2] >= 0; 
+             pagedir_get_page(ct->pagedir, (void*)args[1]) != NULL && byte_checker(&args[1], ct);
     case SYS_SEEK:
       return is_user_vaddr(&args[1]) && is_user_vaddr((void*)args[1]) &&
              pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
-             pagedir_get_page(ct->pagedir, (void*)args[1]) != NULL && byte_checker(&args[1], ct);
+             pagedir_get_page(ct->pagedir, (void*)args[1]) != NULL && is_user_vaddr(&args[2]) &&
+             pagedir_get_page(ct->pagedir, &args[2]) != NULL && byte_checker(&args[1], ct) &&
+             byte_checker(&args[2], ct) && (off_t)args[2] >= 0;
+
     case SYS_CLOSE:
-      return is_user_vaddr(&args[1]) && is_user_vaddr((void*)args[1]) &&
-             pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
-             pagedir_get_page(ct->pagedir, (void*)args[1]) != NULL && byte_checker(&args[1], ct);
+      return is_user_vaddr(&args[1]) && pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
+             byte_checker(&args[1], ct);
     case SYS_FILESIZE:
       return is_user_vaddr(&args[1]) && pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
              byte_checker(&args[1], ct);
     case SYS_READ:
-      return byte_checker(&args[1], ct) && byte_checker(&args[2], ct) &&
-            is_user_vaddr(&args[1]);
+      return byte_checker(&args[1], ct) && byte_checker(&args[2], ct) && is_user_vaddr(&args[1]);
     case SYS_WRITE: {
       bool ret_val = is_user_vaddr(&args[1]) && is_user_vaddr(&args[2]) &&
                      is_user_vaddr(&args[3]) && pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
@@ -277,7 +276,6 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       break;
     }
     case SYS_CLOSE:
-      lock_acquire(&filesys_lock);
       fi = get_file_info(args[1]);
       if (fi == NULL) {
         system_exit(-1);
@@ -286,14 +284,14 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
         list_remove(&fi->elem);
         free(fi);
       }
-      lock_release(&filesys_lock);
       break;
     case SYS_READ:
       fi = get_file_info(args[1]);
       if (fi == NULL) {
+        system_exit(0);
         f->eax = -1;
       } else {
-        f->eax = file_read(fi->fs, (void *) args[2], args[3]);
+        f->eax = file_read(fi->fs, (void*)args[2], args[3]);
       }
       break;
     case SYS_REMOVE:
@@ -326,6 +324,5 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       }
       lock_release(&filesys_lock);
       break;
-      
   }
 }
