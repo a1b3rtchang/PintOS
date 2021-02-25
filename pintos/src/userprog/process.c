@@ -27,6 +27,7 @@ void push(void** esp, int value);
 struct args {
   char* file_name;
   struct p_wait_info* pwi;
+  struct list* files;
 };
 
 /* Starts a new thread running a user program loaded from
@@ -36,6 +37,8 @@ struct args {
 tid_t process_execute(const char* file_name) {
   tid_t tid;
   struct args* argument = malloc(sizeof(struct args));
+  struct thread* curr_thread = thread_current();
+
   if (argument == NULL) {
     return TID_ERROR;
   }
@@ -50,14 +53,13 @@ tid_t process_execute(const char* file_name) {
 
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
-
+  argument->files = curr_thread->files;
   strlcpy((argument->file_name), file_name, strlen(file_name) + 1);
   sema_init(&(argument->pwi->wait_sem), 0);
   struct p_wait_info* pwi = argument->pwi;
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create(file_name, PRI_DEFAULT, start_process, (void*)argument);
 
-  struct thread* curr_thread = thread_current();
   if (tid == TID_ERROR) {
     free(argument->pwi);
     free(argument->file_name);
@@ -92,6 +94,8 @@ static void start_process(void* argument) {
   char* file_name = argument_val->file_name;
   struct p_wait_info* pwi_val = argument_val->pwi;
 
+  struct list* files = argument_val->files;
+
   struct intr_frame if_;
   bool success;
 
@@ -110,16 +114,31 @@ static void start_process(void* argument) {
   token = strtok_r(file_name, " ", &saveptr1);
   struct thread* curr_thread = thread_current();
   strlcpy(curr_thread->name, token,
-          strlen(token) + 1);            /* Change thread name to match executable name */
-  list_init(&(curr_thread->child_pwis)); /* inialize pwi and file lists */
-  curr_thread->files = malloc(sizeof(struct list));
-  list_init(curr_thread->files); /* inialize pwi and file lists */
+          strlen(token) + 1); /* Change thread name to match executable name */
+
   success = load(token, &if_.eip, &if_.esp);
   if (!success) {
     free(file_name);
     pwi_val->exit_status = -1;
     sema_up(&(pwi_val->wait_sem));
     thread_exit();
+  }
+
+  list_init(&(curr_thread->child_pwis)); /* inialize pwi and file lists */
+  curr_thread->files = malloc(sizeof(struct list));
+  list_init(curr_thread->files); /* inialize pwi and file lists */
+
+  if (files != NULL && files->head.next != NULL) {
+    struct list_elem* iter;
+    struct file_info* fi;
+    struct file_info* new_fi;
+    for (iter = list_begin(files); iter != list_end(files); iter = list_next(iter)) {
+      fi = list_entry(iter, struct file_info, elem);
+      new_fi = malloc(sizeof(struct file_info));
+      new_fi->fd = fi->fd;
+      new_fi->fs = fi->fs;
+      list_push_back(curr_thread->files, &(new_fi->elem));
+    }
   }
 
   while (token) {
@@ -233,6 +252,10 @@ void process_exit(void) {
     }
     printf("%s: exit(%d)\n", thread_current()->name, -1);
   }
+  struct file* allow_write = filesys_open(cur->name);
+  if (allow_write != NULL) {
+    file_allow_write(allow_write);
+  }
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
@@ -247,10 +270,6 @@ void process_exit(void) {
     cur->pagedir = NULL;
     pagedir_activate(NULL);
     pagedir_destroy(pd);
-  }
-  struct file* allow_write = filesys_open(cur->name);
-  if (allow_write != NULL) {
-    file_allow_write(allow_write);
   }
 }
 

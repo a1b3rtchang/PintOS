@@ -84,11 +84,9 @@ bool correct_args(uint32_t* args) {
              pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
              pagedir_get_page(ct->pagedir, (void*)args[1]) != NULL && byte_checker(&args[1], ct);
     case SYS_SEEK:
-      return is_user_vaddr(&args[1]) && is_user_vaddr((void*)args[1]) &&
-             pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
-             pagedir_get_page(ct->pagedir, (void*)args[1]) != NULL && is_user_vaddr(&args[2]) &&
-             pagedir_get_page(ct->pagedir, &args[2]) != NULL && byte_checker(&args[1], ct) &&
-             byte_checker(&args[2], ct) && (off_t)args[2] >= 0;
+      return is_user_vaddr(&args[1]) && pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
+             is_user_vaddr(&args[2]) && pagedir_get_page(ct->pagedir, &args[2]) != NULL &&
+             byte_checker(&args[1], ct) && byte_checker(&args[2], ct) && (off_t)args[2] >= 0;
 
     case SYS_CLOSE:
       return is_user_vaddr(&args[1]) && pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
