@@ -56,6 +56,7 @@ tid_t process_execute(const char* file_name) {
   struct p_wait_info* pwi = argument->pwi;
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create(file_name, PRI_DEFAULT, start_process, (void*)argument);
+
   struct thread* curr_thread = thread_current();
   if (tid == TID_ERROR) {
     free(argument->pwi);
@@ -69,11 +70,11 @@ tid_t process_execute(const char* file_name) {
   } else {
     if (curr_thread->child_pwis.head.next == NULL) { // for the OS thread
       list_init(&(curr_thread->child_pwis));
-    } 
+    }
     list_push_back(&(curr_thread->child_pwis), &(pwi->elem));
-    pwi->child = tid;
-    pwi->parent_is_waiting = false;
   }
+  pwi->child = tid;
+  pwi->parent_is_waiting = false;
   free(argument);
   return tid;
 }
@@ -112,7 +113,7 @@ static void start_process(void* argument) {
           strlen(token) + 1);            /* Change thread name to match executable name */
   list_init(&(curr_thread->child_pwis)); /* inialize pwi and file lists */
   curr_thread->files = malloc(sizeof(struct list));
-  list_init(curr_thread->files);      /* inialize pwi and file lists */
+  list_init(curr_thread->files); /* inialize pwi and file lists */
   success = load(token, &if_.eip, &if_.esp);
   if (!success) {
     free(file_name);
@@ -154,6 +155,7 @@ static void start_process(void* argument) {
 
   pwi_val->exit_status = 1;
   curr_thread->parent_pwi = pwi_val;
+  curr_thread->fd_count = 2;
   pwi_val->ref_count = 2;
   lock_init(&(pwi_val->access));
   sema_up(&(pwi_val->wait_sem));
@@ -175,25 +177,26 @@ static void start_process(void* argument) {
    child of the calling process, or if process_wait() has already
    been successfully called for the given TID, returns -1
    immediately, without waiting.
-
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int process_wait(tid_t child_tid) {
-  struct list children = thread_current()->child_pwis;
+  if (thread_current()->child_pwis.head.next == NULL)
+    return -1;
+  struct list* children = &(thread_current()->child_pwis);
   struct list_elem* iter;
-    for (iter = list_begin(&children); iter != list_end(&children); iter = list_next(iter)) {
-      struct p_wait_info *pwi = list_entry(iter, struct p_wait_info, elem);
-      if (pwi->child == child_tid) {
-        if (pwi->parent_is_waiting) {
-          return -1;
-        } else {
-          sema_down(&pwi->wait_sem);
-          pwi->parent_is_waiting = true;
-          return pwi->exit_status;
-        }
+  for (iter = list_begin(children); iter != list_end(children); iter = list_next(iter)) {
+    struct p_wait_info* pwi = list_entry(iter, struct p_wait_info, elem);
+    if (pwi->child == child_tid) {
+      if (pwi->parent_is_waiting) {
+        return -1;
+      } else {
+        sema_down(&pwi->wait_sem);
+        pwi->parent_is_waiting = true;
+        return pwi->exit_status;
       }
     }
-    return -1;
+  }
+  return -1;
 }
 
 /* Free the current process's resources. */
@@ -446,15 +449,11 @@ static bool validate_segment(const struct Elf32_Phdr* phdr, struct file* file) {
 /* Loads a segment starting at offset OFS in FILE at address
    UPAGE.  In total, READ_BYTES + ZERO_BYTES bytes of virtual
    memory are initialized, as follows:
-
         - READ_BYTES bytes at UPAGE must be read from FILE
           starting at offset OFS.
-
         - ZERO_BYTES bytes at UPAGE + READ_BYTES must be zeroed.
-
    The pages initialized by this function must be writable by the
    user process if WRITABLE is true, read-only otherwise.
-
    Return true if successful, false if a memory allocation error
    or disk read error occurs. */
 static bool load_segment(struct file* file, off_t ofs, uint8_t* upage, uint32_t read_bytes,

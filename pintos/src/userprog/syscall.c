@@ -9,6 +9,7 @@
 #include "pagedir.h"
 #include "devices/shutdown.h"
 #include "threads/malloc.h"
+#include "filesys/filesys.h"
 
 static struct lock filesys_lock;
 static struct lock p_exec_lock;
@@ -23,22 +24,81 @@ void syscall_init(void) {
   lock_init(&p_exec_lock);
 }
 
+bool byte_checker(void* mem, struct thread* ct) {
+  char* byte_check = (char*)mem;
+  return is_user_vaddr(&byte_check[0]) && is_user_vaddr(&byte_check[1]) &&
+         is_user_vaddr(&byte_check[2]) && is_user_vaddr(&byte_check[3]) &&
+         pagedir_get_page(ct->pagedir, &byte_check[0]) != NULL &&
+         pagedir_get_page(ct->pagedir, &byte_check[1]) != NULL &&
+         pagedir_get_page(ct->pagedir, &byte_check[2]) != NULL &&
+         pagedir_get_page(ct->pagedir, &byte_check[3]) != NULL;
+}
+
+bool str_checker(void* str, struct thread* ct) {
+  char* str_check = (char*)str;
+  int i;
+  for (i = 0; str_check[i] != '\0'; i++) {
+    if (!(is_user_vaddr(&str_check[i]) && pagedir_get_page(ct->pagedir, &str_check[i]))) {
+      return false;
+    }
+  }
+  return is_user_vaddr(&str_check[i]) && pagedir_get_page(ct->pagedir, &str_check[i]);
+}
+
 bool correct_args(uint32_t* args) {
+  struct thread* ct = thread_current();
+  if (!byte_checker(&args[0], ct))
+    return false;
   switch (args[0]) {
     case SYS_EXIT:
     case SYS_PRACTICE:
     case SYS_WAIT:
-      return is_user_vaddr(&args[1]); /* Check if input is stored in valid memory */
+      return is_user_vaddr(&args[1]) && pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
+             byte_checker(&args[1], ct); /* Check if input is stored in valid memory */
     case SYS_EXEC:
-      return is_user_vaddr(&args[1]) && is_user_vaddr((void *)args[1]) &&
-             pagedir_get_page(thread_current()->pagedir, &args[1]) != NULL &&
-             pagedir_get_page(thread_current()->pagedir, (void *) args[1]) !=
-                 NULL; /* Check if location of char* is valid AND if where cha * is pointing to is also valid */
+      return is_user_vaddr(&args[1]) && is_user_vaddr((void*)args[1]) &&
+             pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
+             pagedir_get_page(ct->pagedir, (void*)args[1]) != NULL &&
+             str_checker(
+                 &args[1],
+                 ct); /* Check if location of char* is valid AND if where cha * is pointing to is also valid */
     case SYS_HALT:
       return true;
-    case SYS_WRITE:
-      is_user_vaddr((void *) &args[2]) && is_user_vaddr((void *) args[3]);
+    case SYS_REMOVE:
+    case SYS_OPEN:
+      return is_user_vaddr(&args[1]) && is_user_vaddr((void*)args[1]) &&
+             pagedir_get_page(ct->pagedir, &args[1]) &&
+             pagedir_get_page(ct->pagedir, (void*)args[1]) && str_checker(&args[1], ct);
+    case SYS_CREATE:
+      return is_user_vaddr(&args[1]) && is_user_vaddr((void*)args[1]) &&
+             pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
+             pagedir_get_page(ct->pagedir, (void*)args[1]) != NULL && is_user_vaddr(&args[2]) &&
+             pagedir_get_page(ct->pagedir, &args[2]) != NULL && str_checker(&args[1], ct) &&
+             byte_checker(&args[2], ct) && (off_t)args[2] >= 0;
+    case SYS_TELL:
+    case SYS_CLOSE:
+    case SYS_FILESIZE:
+      return is_user_vaddr(&args[1]) && pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
+             byte_checker(&args[1], ct);
+    case SYS_READ:
+    case SYS_WRITE: {
+      bool ret_val = is_user_vaddr(&args[1]) && is_user_vaddr(&args[2]) &&
+                     is_user_vaddr(&args[3]) && pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
+                     pagedir_get_page(ct->pagedir, &args[2]) != NULL &&
+                     pagedir_get_page(ct->pagedir, &args[3]) != NULL &&
+                     byte_checker(&args[1], ct) && byte_checker(&args[3], ct);
+      if (!ret_val)
+        return false;
 
+      for (size_t i = 0; i < (size_t)args[3]; i++) {
+        ret_val = ret_val && is_user_vaddr(&((char*)args[2])[i]) &&
+                  pagedir_get_page(ct->pagedir, &((char*)args[2])[i]);
+        if (!ret_val) {
+          return ret_val;
+        }
+      }
+      return ret_val;
+    }
   }
   return true;
 }
@@ -85,54 +145,6 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       f->eax = args[1];
       system_exit(args[1]);
       break;
-    case SYS_WRITE:
-      //int write(int fd, const void* buffer, unsigned size) {
-      //return syscall3(SYS_WRITE, fd, buffer, size);
-
-      //input:(int fd, const void *buffer, unsigned size)
-      //output:
-      //off_t file_write(struct file* file, const void* buffer, off_t size) from file.c
-      //buffer is the string that is being written in
-      // args[1] = file descriptor
-      // args[2] = pointer to buffer
-      // args[3] = the max size we want
-      lock_acquire(&filesys_lock);
-      int fd = args[1];
-      if (fd == 0) {
-        system_exit(-1);
-      } else if (fd == 1) {
-        // void putbuf(const char* buffer, size_t n)
-        // 100bytes. reasonable to break it down.
-        putbuf((char*)args[2], args[3]);
-      } else if (fd == 2) {
-        
-      } else{
-        /*if ((thread_current -> files) == NULL){
-            struct file_info* new_file;
-            new_file -> fd = 3;
-            filesys_create(args[2], args[3]); 
-            new_file -> file = filesys_open(args[2]); 
-            list_puch_back(thread_current() -> files, &(new_file -> elem))
-            return file_write(new_file.file, (void *) args[2], args[3])
-        } else {
-            struct list_elem* last_elem = list_back(thread_current() -> files);
-            struct file_info* current_file = list_entry(last_elem, file_info, elem); 
-            struct file_info* new_file;
-            new_file -> fd = (current_file -> fd) + 1;
-            filesys_create(args[2], args[3]); 
-            new_file -> file = filesys_open(args[2]); 
-            list_push_back(thread_current() -> files, &(newfile -> elem))
-            return file_write(new_file.file, (void *) args[2], args[3])
-            
-      
-        }
-        // thread_current() -> file_list
-        */
-      }
-      lock_release(&filesys_lock);
-      break;
-    case SYS_CREATE:
-      break;
     case SYS_EXEC:
       lock_acquire(&p_exec_lock);
       f->eax = process_execute((char*)args[1]);
@@ -146,7 +158,96 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       shutdown_power_off();
       break;
     case SYS_WAIT:
-      f->eax = process_wait(args[1]); 
+      f->eax = process_wait(args[1]);
+      break;
+    case SYS_WRITE:
+      //int write(int fd, const void* buffer, unsigned size) {
+      //return syscall3(SYS_WRITE, fd, buffer, size);
+
+      //input:(int fd, const void *buffer, unsigned size)
+      //output:
+      //off_t file_write(struct file* file, const void* buffer, off_t size) from file.c
+      //buffer is the string that is being written in
+      // args[1] = file descriptor
+      // args[2] = pointer to buffer
+      // args[3] = the max size we want
+      lock_acquire(&filesys_lock);
+      if (args[1] == 0) {
+        system_exit(-1);
+        break;
+      } else if (args[1] == 1) {
+        // void putbuf(const char* buffer, size_t n)
+        // 100bytes. reasonable to break it down.
+        putbuf((char*)args[2], args[3]);
+        break;
+      } else {
+        if ((thread_current()->files) == NULL) {
+          struct file_info* new_file = malloc(sizeof(struct file_info));
+          new_file->fd = 3;
+          filesys_create(args[2], args[3]);
+          new_file->file = filesys_open(args[2]);
+          list_push_back(thread_current()->files, &(new_file->elem));
+          return file_write(new_file->file, (void*)args[2], args[3]);
+          break;
+        } else {
+          /*make
+            struct list_elem* last_elem = list_back(thread_current() -> files);
+            struct file_info* current_file = list_entry(last_elem, file_info, elem);
+            struct file_info* new_file;
+            new_file -> fd = (current_file -> fd) + 1;
+            filesys_create(args[2], args[3]);
+            new_file -> file = filesys_open(args[2]);
+            list_push_back(thread_current() -> files, &(newfile -> elem));
+            return file_write(new_file.file, (void *) args[2], args[3]);
+            break;
+            */
+        }
+      }
+      lock_release(&filesys_lock);
+      break;
+    case SYS_OPEN:;
+      struct file* file_opened = NULL;
+      file_opened = filesys_open((char*)args[1]);
+      if (file_opened == NULL) {
+        system_exit(-1);
+      } else {
+        struct file_info* newfile = malloc(sizeof(struct file_info));
+        newfile->file = file_opened;
+        if (list_empty(thread_current()->files)) {
+          newfile->fd = 2;
+          list_push_back(thread_current()->files, &(newfile->elem));
+        } else {
+          struct list_elem* last_elem = list_back(thread_current()->files);
+          struct file_info* current_file = list_entry(last_elem, struct file_info, elem);
+          newfile->fd = (current_file->fd) + 1;
+          list_push_back(thread_current()->files, &(newfile->elem));
+        }
+      }
+
+      break;
+    case SYS_CREATE:
+      if (filesys_create((char*)args[1], args[2])) {
+        list_init(thread_current()->files);
+      } else {
+        system_exit(-1);
+      }
+      break;
+    case SYS_EXEC:
+      lock_acquire(&p_exec_lock);
+      f->eax = process_execute((char*)args[1]);
+      lock_release(&p_exec_lock);
+      break;
+    case SYS_PRACTICE:
+      f->eax = args[1] + 1;
       break;
   }
+  case SYS_REMOVE:
+    lock_acquire(&filesys_lock);
+    f->eax = filesys_remove((char*)args[1]);
+    lock_release(&filesys_lock);
+    break;
+  case SYS_WAIT:
+    f->eax = process_wait(args[1]);
+    break;
+}
 }
