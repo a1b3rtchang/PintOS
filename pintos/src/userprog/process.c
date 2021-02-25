@@ -227,6 +227,15 @@ void process_exit(void) {
   uint32_t* pd;
   if (cur->self != NULL) {
     file_allow_write(cur->self);
+    file_close(cur->self);
+  }
+  if (cur->files != NULL && cur->files->head.next != NULL) {
+    struct file_info* fi;
+    while (list_size(cur->files) > 0) {
+      fi = list_entry(list_pop_back(cur->files), struct file_info, elem);
+      file_close(fi->fs);
+      free(fi);
+    }
   }
   if (!cur->user_exit) {
     struct p_wait_info* parent = cur->parent_pwi;
