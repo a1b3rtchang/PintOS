@@ -97,7 +97,8 @@ bool correct_args(uint32_t* args) {
       return is_user_vaddr(&args[1]) && pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
              byte_checker(&args[1], ct);
     case SYS_READ:
-      return byte_checker(&args[1], ct) && byte_checker(&args[2], ct) && is_user_vaddr(&args[1]);
+      return byte_checker(&args[1], ct) && byte_checker(&args[2], ct) &&
+             is_user_vaddr((void*)args[2]);
     case SYS_WRITE: {
       bool ret_val = is_user_vaddr(&args[1]) && is_user_vaddr(&args[2]) &&
                      is_user_vaddr(&args[3]) && pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
@@ -288,8 +289,8 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     case SYS_READ:
       fi = get_file_info(args[1]);
       if (fi == NULL) {
-        system_exit(0);
         f->eax = -1;
+        system_exit(-1);
       } else {
         f->eax = file_read(fi->fs, (void*)args[2], args[3]);
       }
