@@ -10,6 +10,7 @@
 #include "devices/shutdown.h"
 #include "threads/malloc.h"
 #include "filesys/filesys.h"
+#include "filesys/file.h"
 
 static struct lock filesys_lock;
 static struct lock p_exec_lock;
@@ -17,6 +18,9 @@ static void syscall_handler(struct intr_frame*);
 void syscall_init(void);
 bool correct_args(uint32_t*);
 void system_exit(int);
+bool byte_checker(void*, struct thread*);
+bool str_checker(void*, struct thread*);
+struct file_info* get_file_info(int);
 
 void syscall_init(void) {
   intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall");
@@ -76,11 +80,25 @@ bool correct_args(uint32_t* args) {
              pagedir_get_page(ct->pagedir, &args[2]) != NULL && str_checker(&args[1], ct) &&
              byte_checker(&args[2], ct) && (off_t)args[2] >= 0;
     case SYS_TELL:
+      return is_user_vaddr(&args[1]) && is_user_vaddr((void*)args[1]) &&
+             pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
+             pagedir_get_page(ct->pagedir, (void*)args[1]) != NULL && is_user_vaddr(&args[2]) &&
+             pagedir_get_page(ct->pagedir, &args[2]) != NULL && byte_checker(&args[1], ct) &&
+             byte_checker(&args[2], ct) && (off_t)args[2] >= 0; 
+    case SYS_SEEK:
+      return is_user_vaddr(&args[1]) && is_user_vaddr((void*)args[1]) &&
+             pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
+             pagedir_get_page(ct->pagedir, (void*)args[1]) != NULL && byte_checker(&args[1], ct);
     case SYS_CLOSE:
+      return is_user_vaddr(&args[1]) && is_user_vaddr((void*)args[1]) &&
+             pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
+             pagedir_get_page(ct->pagedir, (void*)args[1]) != NULL && byte_checker(&args[1], ct);
     case SYS_FILESIZE:
       return is_user_vaddr(&args[1]) && pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
              byte_checker(&args[1], ct);
     case SYS_READ:
+      return byte_checker(&args[1], ct) && byte_checker(&args[2], ct) &&
+            is_user_vaddr(&args[1]);
     case SYS_WRITE: {
       bool ret_val = is_user_vaddr(&args[1]) && is_user_vaddr(&args[2]) &&
                      is_user_vaddr(&args[3]) && pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
@@ -169,6 +187,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   /* printf("System call number: %d\n", args[0]); */
 
   switch (args[0]) {
+    struct file_info* fi;
     case SYS_EXIT:
       f->eax = args[1];
       system_exit(args[1]);
@@ -240,7 +259,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
         lock_release(&filesys_lock);
         break;
       }
-      struct file_info* fi = malloc(sizeof(struct file_info));
+      fi = malloc(sizeof(struct file_info));
       fi->fd = thread_current()->fd_count;
       thread_current()->fd_count++;
       fi->fs = opened_file;
@@ -251,8 +270,24 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     }
     case SYS_CLOSE:
       lock_acquire(&filesys_lock);
-
+      fi = get_file_info(args[1]);
+      if (fi == NULL) {
+        system_exit(-1);
+      } else {
+        file_close(fi->fs);
+        list_remove(&fi->elem);
+        free(fi);
+      }
       lock_release(&filesys_lock);
+      break;
+    case SYS_READ:
+      fi = get_file_info(args[1]);
+      if (fi == NULL) {
+        f->eax = -1;
+      } else {
+        f->eax = file_read(fi->fs, (void *) args[2], args[3]);
+      }
+      break;
     case SYS_REMOVE:
       lock_acquire(&filesys_lock);
       f->eax = filesys_remove((char*)args[1]);
@@ -263,5 +298,26 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       f->eax = filesys_create((char*)args[1], (off_t)args[2]);
       lock_release(&filesys_lock);
       break;
+    case SYS_TELL:
+      lock_acquire(&filesys_lock);
+      fi = get_file_info(args[1]);
+      if (fi != NULL) {
+        file_tell(fi->fs);
+      } else {
+        f->eax = -1;
+      }
+      lock_release(&filesys_lock);
+      break;
+    case SYS_SEEK:
+      lock_acquire(&filesys_lock);
+      fi = get_file_info(args[1]);
+      if (fi != NULL) {
+        file_seek(fi->fs, args[2]);
+      } else {
+        system_exit(-1);
+      }
+      lock_release(&filesys_lock);
+      break;
+      
   }
 }
