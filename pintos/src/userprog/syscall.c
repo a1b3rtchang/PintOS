@@ -275,6 +275,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       break;
     }
     case SYS_CLOSE:
+      lock_acquire(&filesys_lock);
       fi = get_file_info(args[1]);
       if (fi == NULL) {
         system_exit(-1);
@@ -283,8 +284,10 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
         list_remove(&fi->elem);
         free(fi);
       }
+      lock_release(&filesys_lock);
       break;
     case SYS_READ:
+      lock_acquire(&filesys_lock);
       fi = get_file_info(args[1]);
       if (fi == NULL) {
         f->eax = -1;
@@ -292,6 +295,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       } else {
         f->eax = file_read(fi->fs, (void*)args[2], args[3]);
       }
+      lock_release(&filesys_lock);
       break;
     case SYS_REMOVE:
       lock_acquire(&filesys_lock);
@@ -324,12 +328,14 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       lock_release(&filesys_lock);
       break;
     case SYS_FILESIZE:
+      lock_acquire(&filesys_lock);
       fi = get_file_info(args[1]);
       if (fi != NULL) {
         f->eax = file_length(fi->fs);
       } else {
         f->eax = -1;
       }
+      lock_release(&filesys_lock);
       break;
   }
 }

@@ -102,6 +102,7 @@ struct thread {
   struct list child_pwis;
   struct p_wait_info* parent_pwi;
   struct list* files;
+  struct file* self;
   bool user_exit;
   /* Owned by thread.c. */
   tid_t tid;                 /* Thread identifier. */

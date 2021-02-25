@@ -136,7 +136,7 @@ static void start_process(void* argument) {
       fi = list_entry(iter, struct file_info, elem);
       new_fi = malloc(sizeof(struct file_info));
       new_fi->fd = fi->fd;
-      new_fi->fs = fi->fs;
+      new_fi->fs = file_reopen(fi->fs);
       list_push_back(curr_thread->files, &(new_fi->elem));
     }
   }
@@ -178,7 +178,8 @@ static void start_process(void* argument) {
   curr_thread->user_exit = false;
   pwi_val->ref_count = 2;
   lock_init(&(pwi_val->access));
-  file_deny_write(filesys_open(curr_thread->name));
+  curr_thread->self = filesys_open(curr_thread->name);
+  file_deny_write(curr_thread->self);
   sema_up(&(pwi_val->wait_sem));
   free(file_name);
 
@@ -224,7 +225,9 @@ int process_wait(tid_t child_tid) {
 void process_exit(void) {
   struct thread* cur = thread_current();
   uint32_t* pd;
-
+  if (cur->self != NULL) {
+    file_allow_write(cur->self);
+  }
   if (!cur->user_exit) {
     struct p_wait_info* parent = cur->parent_pwi;
     struct list* children = &(cur->child_pwis);
@@ -253,10 +256,6 @@ void process_exit(void) {
       }
     }
     printf("%s: exit(%d)\n", thread_current()->name, -1);
-  }
-  struct file* allow_write = filesys_open(cur->name);
-  if (allow_write != NULL) {
-    file_allow_write(allow_write);
   }
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
