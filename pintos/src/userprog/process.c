@@ -156,6 +156,7 @@ static void start_process(void* argument) {
   pwi_val->exit_status = 1;
   curr_thread->parent_pwi = pwi_val;
   curr_thread->fd_count = 2;
+  curr_thread->user_exit = false;
   pwi_val->ref_count = 2;
   lock_init(&(pwi_val->access));
   sema_up(&(pwi_val->wait_sem));
@@ -203,7 +204,33 @@ int process_wait(tid_t child_tid) {
 void process_exit(void) {
   struct thread* cur = thread_current();
   uint32_t* pd;
-
+  if (!cur->user_exit) {
+    struct p_wait_info* parent = cur->parent_pwi;
+    struct list* children = &(cur->child_pwis);
+    struct p_wait_info* pwi = NULL;
+    while (list_size(children) > 0) {
+      pwi = list_entry(list_pop_back(children), struct p_wait_info, elem);
+      lock_acquire(&(pwi->access));
+      pwi->ref_count--;
+      if (pwi->ref_count == 0) {
+        free(pwi);
+      } else {
+        lock_release(&(pwi->access));
+      }
+    }
+    if (parent != NULL) {
+      lock_acquire(&(parent->access));
+      parent->ref_count--;
+      if (parent->ref_count == 0) {
+        free(parent);
+      } else {
+        parent->exit_status = -1;
+        sema_up(&(parent->wait_sem));
+        lock_release(&(parent->access));
+      }
+    }
+    printf("%s: exit(%d)\n", thread_current()->name, -1);
+  }
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;

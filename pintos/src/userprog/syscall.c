@@ -10,6 +10,7 @@
 #include "devices/shutdown.h"
 #include "threads/malloc.h"
 #include "filesys/filesys.h"
+#include "filesys/file.h"
 
 static struct lock filesys_lock;
 static struct lock p_exec_lock;
@@ -73,7 +74,8 @@ bool correct_args(uint32_t* args) {
       return is_user_vaddr(&args[1]) && is_user_vaddr((void*)args[1]) &&
              pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
              pagedir_get_page(ct->pagedir, (void*)args[1]) != NULL && is_user_vaddr(&args[2]) &&
-             pagedir_get_page(ct->pagedir, &args[2]) != NULL && str_checker(&args[1], ct) &&
+             pagedir_get_page(ct->pagedir, &args[2]) != NULL && is_user_vaddr((void*)args[2]) &&
+             pagedir_get_page(ct->pagedir, (void*)args[2]) && str_checker(&args[1], ct) &&
              byte_checker(&args[2], ct) && (off_t)args[2] >= 0;
     case SYS_TELL:
     case SYS_CLOSE:
@@ -110,7 +112,6 @@ void system_exit(int err) {
   // struct list* children = &(curr_thread->child_pwis);
   // struct list_elem* iter;
   struct list* children = &(curr_thread->child_pwis);
-  struct list_elem* iter;
   struct p_wait_info* pwi = NULL;
 
   while (list_size(children) > 0) {
@@ -134,7 +135,7 @@ void system_exit(int err) {
       lock_release(&(parent->access));
     }
   }
-
+  curr_thread->user_exit = true;
   printf("%s: exit(%d)\n", thread_current()->name, err);
   thread_exit();
 }
