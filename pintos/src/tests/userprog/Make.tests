@@ -18,7 +18,7 @@ exec-bound-2 exec-bound-3 exec-multiple exec-missing exec-bad-ptr       \
 wait-simple wait-twice wait-killed wait-bad-pid multi-recurse           \
 multi-child-fd rox-simple rox-child rox-multichild bad-read bad-write   \
 bad-read2 bad-write2 bad-jump bad-jump2 iloveos practice stack-align-1  \
-stack-align-2 stack-align-3 stack-align-4)
+stack-align-2 stack-align-3 stack-align-4 over-write)
 
 tests/userprog_PROGS = $(tests/userprog_TESTS) $(addprefix \
 tests/userprog/,child-simple child-args child-bad child-close child-rox)
@@ -110,6 +110,8 @@ tests/userprog/rox-simple_SRC = tests/userprog/rox-simple.c tests/main.c
 tests/userprog/rox-child_SRC = tests/userprog/rox-child.c tests/main.c
 tests/userprog/rox-multichild_SRC = tests/userprog/rox-multichild.c	\
 tests/main.c
+
+tests/userprog/over-write_SRC = tests/userprog/over-write.c tests/main.c
 
 tests/userprog/child-simple_SRC = tests/userprog/child-simple.c
 tests/userprog/child-args_SRC = tests/userprog/args.c
