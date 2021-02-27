@@ -41,7 +41,6 @@ bool byte_checker(void* mem, struct thread* ct) {
 bool str_checker(void* str, struct thread* ct) {
   char* str_check = (char*)str;
   int i = 0;
-
   while (is_user_vaddr(&str_check[i]) && pagedir_get_page(ct->pagedir, &str_check[i])) {
     if (str_check[i] == '\0') {
       return true;
@@ -65,7 +64,7 @@ bool correct_args(uint32_t* args) {
     case SYS_EXEC:
       return byte_checker(&args[1], ct) && is_user_vaddr(&args[1]) &&
              pagedir_get_page(ct->pagedir, &args[1]) != NULL && is_user_vaddr((void*)args[1]) &&
-             pagedir_get_page(ct->pagedir, (void*)args[1]) != NULL && args[1] != NULL &&
+             pagedir_get_page(ct->pagedir, (void*)args[1]) != NULL && /*args[1] != NULL &&*/
              str_checker(
                  (void*)args[1],
                  ct); /* Check if location of char* is valid AND if where cha * is pointing to is also valid */
@@ -98,8 +97,8 @@ bool correct_args(uint32_t* args) {
       return is_user_vaddr(&args[1]) && pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
              byte_checker(&args[1], ct);
     case SYS_READ:
-      return byte_checker(&args[1], ct) && byte_checker(&args[2], ct) &&
-             is_user_vaddr((void*)args[2]);
+      //return byte_checker(&args[1], ct) && byte_checker(&args[2], ct) &&
+      //is_user_vaddr((void*)args[2]);
     case SYS_WRITE: {
       bool ret_val = is_user_vaddr(&args[1]) && is_user_vaddr(&args[2]) &&
                      is_user_vaddr(&args[3]) && pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
@@ -177,14 +176,6 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       pagedir_get_page(thread_current()->pagedir, args) == NULL || !correct_args(args)) {
     system_exit(-1);
   }
-  /*
-   * The following print statement, if uncommented, will print out the syscall
-   * number whenever a process enters a system call. You might find it useful
-   * when debugging. It will cause tests to fail, however, so you should not
-   * include it in your final submission.
-   */
-
-  /* printf("System call number: %d\n", args[0]); */
 
   switch (args[0]) {
     struct file_info* fi;
@@ -201,30 +192,17 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       f->eax = args[1] + 1;
       break;
     case SYS_HALT:
-      // TODO: free files + pwaitinfos + other
       shutdown_power_off();
       break;
     case SYS_WAIT:
       f->eax = process_wait(args[1]);
       break;
     case SYS_WRITE:
-      //int write(int fd, const void* buffer, unsigned size) {
-      //return syscall3(SYS_WRITE, fd, buffer, size);
-
-      //input:(int fd, const void *buffer, unsigned size)
-      //output:
-      //off_t file_write(struct file* file, const void* buffer, off_t size) from file.c
-      //buffer is the string that is being written in
-      // args[1] = file descriptor
-      // args[2] = pointer to buffer
-      // args[3] = the max size we want
       lock_acquire(&filesys_lock);
       if (args[1] == 0) {
         system_exit(-1);
         break;
       } else if (args[1] == 1) {
-        // void putbuf(const char* buffer, size_t n)
-        // 100bytes. reasonable to break it down.
         putbuf((char*)args[2], args[3]);
       } else {
         struct file_info* get_file = get_file_info(args[1]);
@@ -236,26 +214,6 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
         f->eax = file_write(get_file->fs, (void*)args[2], args[3]);
         lock_release(&filesys_lock);
         break;
-
-        /*if ((thread_current -> files) == NULL){
-            struct file_info* new_file;
-            new_file -> fd = 3;
-            filesys_create(args[2], args[3]);
-            new_file -> file = filesys_open(args[2]);
-            list_puch_back(thread_current() -> files, &(new_file -> elem))
-            return file_write(new_file.file, (void *) args[2], args[3])
-        } else {
-          /*make
-            struct list_elem* last_elem = list_back(thread_current() -> files);
-            struct file_info* current_file = list_entry(last_elem, file_info, elem);
-            struct file_info* new_file;
-            new_file -> fd = (current_file -> fd) + 1;
-            filesys_create(args[2], args[3]);
-            new_file -> file = filesys_open(args[2]);
-            list_push_back(thread_current() -> files, &(newfile -> elem));
-            return file_write(new_file.file, (void *) args[2], args[3]);
-            break;
-            */
       }
 
       lock_release(&filesys_lock);
