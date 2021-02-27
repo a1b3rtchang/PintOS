@@ -36,9 +36,9 @@ struct args {
    thread id, or TID_ERROR if the thread cannot be created. */
 tid_t process_execute(const char* file_name) {
   tid_t tid;
-  struct args* argument = malloc(sizeof(struct args));
   struct thread* curr_thread = thread_current();
 
+  struct args* argument = malloc(sizeof(struct args));
   if (argument == NULL) {
     return TID_ERROR;
   }

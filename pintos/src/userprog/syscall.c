@@ -190,13 +190,12 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       } else if (args[1] == 1) {
         putbuf((char*)args[2], args[3]);
       } else {
-        struct file_info* get_file = get_file_info(args[1]);
-        if (get_file == NULL) {
+        fi = get_file_info(args[1]);
+        if (fi) {
+          f->eax = file_write(fi->fs, (void*)args[2], args[3]);
+        } else {
           f->eax = -1;
-          lock_release(&filesys_lock);
-          break;
         }
-        f->eax = file_write(get_file->fs, (void*)args[2], args[3]);
         lock_release(&filesys_lock);
         break;
       }
@@ -206,40 +205,39 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     case SYS_OPEN: {
       lock_acquire(&filesys_lock);
       struct file* opened_file = filesys_open((char*)args[1]);
-      if (opened_file == NULL) {
+      if (!opened_file) {
         f->eax = -1;
-        lock_release(&filesys_lock);
-        break;
+      } else {
+        fi = malloc(sizeof(struct file_info));
+        fi->fd = thread_current()->fd_count;
+        thread_current()->fd_count++;
+        fi->fs = opened_file;
+        list_push_back(thread_current()->files, &(fi->elem));
+        f->eax = fi->fd;
       }
-      fi = malloc(sizeof(struct file_info));
-      fi->fd = thread_current()->fd_count;
-      thread_current()->fd_count++;
-      fi->fs = opened_file;
-      list_push_back(thread_current()->files, &(fi->elem));
-      f->eax = fi->fd;
       lock_release(&filesys_lock);
       break;
     }
     case SYS_CLOSE:
       lock_acquire(&filesys_lock);
       fi = get_file_info(args[1]);
-      if (fi == NULL) {
-        system_exit(-1);
-      } else {
+      if (fi) {
         file_close(fi->fs);
         list_remove(&fi->elem);
         free(fi);
+      } else {
+        system_exit(-1);
       }
       lock_release(&filesys_lock);
       break;
     case SYS_READ:
       lock_acquire(&filesys_lock);
       fi = get_file_info(args[1]);
-      if (fi == NULL) {
+      if (fi) {
+        f->eax = file_read(fi->fs, (void*)args[2], args[3]);
+      } else {
         f->eax = -1;
         system_exit(-1);
-      } else {
-        f->eax = file_read(fi->fs, (void*)args[2], args[3]);
       }
       lock_release(&filesys_lock);
       break;
@@ -256,7 +254,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     case SYS_TELL:
       lock_acquire(&filesys_lock);
       fi = get_file_info(args[1]);
-      if (fi != NULL) {
+      if (fi) {
         file_tell(fi->fs);
       } else {
         f->eax = -1;
@@ -266,7 +264,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     case SYS_SEEK:
       lock_acquire(&filesys_lock);
       fi = get_file_info(args[1]);
-      if (fi != NULL) {
+      if (fi) {
         file_seek(fi->fs, args[2]);
       } else {
         system_exit(-1);
@@ -276,7 +274,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     case SYS_FILESIZE:
       lock_acquire(&filesys_lock);
       fi = get_file_info(args[1]);
-      if (fi != NULL) {
+      if (fi) {
         f->eax = file_length(fi->fs);
       } else {
         f->eax = -1;
