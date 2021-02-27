@@ -90,12 +90,9 @@ void push(void** esp, int value) {
    running. */
 static void start_process(void* argument) {
   struct args* argument_val = (struct args*)argument;
-
   char* file_name = argument_val->file_name;
   struct p_wait_info* pwi_val = argument_val->pwi;
-
   struct list* files = argument_val->files;
-
   struct intr_frame if_;
   bool success;
 
@@ -110,7 +107,6 @@ static void start_process(void* argument) {
   char* token;
   char file_name_copy[strlen(file_name) + 1];
   strlcpy(file_name_copy, file_name, sizeof(file_name_copy));
-  /* Store arg words on user stack */
   token = strtok_r(file_name, " ", &saveptr1);
   struct thread* curr_thread = thread_current();
   strlcpy(curr_thread->name, token,
@@ -124,9 +120,9 @@ static void start_process(void* argument) {
     thread_exit();
   }
 
-  list_init(&(curr_thread->child_pwis)); /* inialize pwi and file lists */
-  curr_thread->files = malloc(sizeof(struct list));
-  list_init(curr_thread->files); /* inialize pwi and file lists */
+  list_init(&(curr_thread->child_pwis));            /* intialize pwi list  */
+  curr_thread->files = malloc(sizeof(struct list)); /* malloc list for file  */
+  list_init(curr_thread->files);                    /* inializes file list */
 
   if (files != NULL && files->head.next != NULL) {
     struct list_elem* iter;
@@ -160,7 +156,6 @@ static void start_process(void* argument) {
   }
 
   if_.esp -= ((unsigned int)if_.esp - ((argc + 3) * 4)) % 16; /* 16byte stack-align */
-
   push(&if_.esp, 0); /* Null terminate argv by convention */
 
   for (i = 0; i < argc; i++) {
@@ -203,7 +198,7 @@ static void start_process(void* argument) {
    does nothing. */
 int process_wait(tid_t child_tid) {
   if (thread_current()->child_pwis.head.next == NULL)
-    return -1;
+    return -1; /* Main OS thread pwi list not init */
   struct list* children = &(thread_current()->child_pwis);
   struct list_elem* iter;
   for (iter = list_begin(children); iter != list_end(children); iter = list_next(iter)) {
@@ -225,10 +220,12 @@ int process_wait(tid_t child_tid) {
 void process_exit(void) {
   struct thread* cur = thread_current();
   uint32_t* pd;
+
   if (cur->self != NULL) {
     file_allow_write(cur->self);
     file_close(cur->self);
   }
+
   if (cur->files != NULL && cur->files->head.next != NULL) {
     struct file_info* fi;
     while (list_size(cur->files) > 0) {
@@ -237,6 +234,8 @@ void process_exit(void) {
       free(fi);
     }
   }
+
+  /* if kernel crashes the thread */
   if (!cur->user_exit) {
     struct p_wait_info* parent = cur->parent_pwi;
     struct list* children = &(cur->child_pwis);

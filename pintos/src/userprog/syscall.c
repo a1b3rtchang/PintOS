@@ -20,6 +20,8 @@ bool correct_args(uint32_t*);
 void system_exit(int);
 bool byte_checker(void*, struct thread*);
 bool str_checker(void*, struct thread*);
+bool val_check(void*, struct thread*);
+bool pointer_check(void*, struct thread*);
 struct file_info* get_file_info(int);
 
 void syscall_init(void) {
@@ -51,6 +53,17 @@ bool str_checker(void* str, struct thread* ct) {
   return false;
 }
 
+bool val_check(void* val, struct thread* ct) {
+  return byte_checker(val, ct) && is_user_vaddr(val) &&
+         (pagedir_get_page(ct->pagedir, val) != NULL);
+}
+
+bool pointer_check(void* val, struct thread* ct) {
+  uint32_t* addr = val;
+  return byte_checker(val, ct) && val_check(val, ct) && val_check((void*)(*addr), ct);
+}
+
+/* argument checker */
 bool correct_args(uint32_t* args) {
   struct thread* ct = thread_current();
   if (!byte_checker(&args[0], ct))
@@ -59,55 +72,27 @@ bool correct_args(uint32_t* args) {
     case SYS_EXIT:
     case SYS_PRACTICE:
     case SYS_WAIT:
-      return is_user_vaddr(&args[1]) && pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
-             byte_checker(&args[1], ct); /* Check if input is stored in valid memory */
-    case SYS_EXEC:
-      return byte_checker(&args[1], ct) && is_user_vaddr(&args[1]) &&
-             pagedir_get_page(ct->pagedir, &args[1]) != NULL && is_user_vaddr((void*)args[1]) &&
-             pagedir_get_page(ct->pagedir, (void*)args[1]) != NULL && /*args[1] != NULL &&*/
-             str_checker(
-                 (void*)args[1],
-                 ct); /* Check if location of char* is valid AND if where cha * is pointing to is also valid */
+    case SYS_CLOSE:
+    case SYS_FILESIZE:
+    case SYS_TELL:
+      return val_check(&args[1], ct);
     case SYS_HALT:
       return true;
     case SYS_REMOVE:
+    case SYS_EXEC:
     case SYS_OPEN:
-      return is_user_vaddr(&args[1]) && is_user_vaddr((void*)args[1]) &&
-             pagedir_get_page(ct->pagedir, &args[1]) &&
-             pagedir_get_page(ct->pagedir, (void*)args[1]) && str_checker(&args[1], ct);
+      return pointer_check(&args[1], ct) && str_checker((void*)args[1], ct);
     case SYS_CREATE:
-      return is_user_vaddr(&args[1]) && is_user_vaddr((void*)args[1]) &&
-             pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
-             pagedir_get_page(ct->pagedir, (void*)args[1]) != NULL && is_user_vaddr(&args[2]) &&
-             pagedir_get_page(ct->pagedir, &args[2]) != NULL && is_user_vaddr((void*)args[2]) &&
-             str_checker(&args[1], ct) && byte_checker(&args[2], ct) && (off_t)args[2] >= 0;
-    case SYS_TELL:
-      return is_user_vaddr(&args[1]) && is_user_vaddr((void*)args[1]) &&
-             pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
-             pagedir_get_page(ct->pagedir, (void*)args[1]) != NULL && byte_checker(&args[1], ct);
+      return pointer_check(&args[1], ct) && val_check(&args[2], ct) && str_checker(&args[1], ct);
     case SYS_SEEK:
-      return is_user_vaddr(&args[1]) && pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
-             is_user_vaddr(&args[2]) && pagedir_get_page(ct->pagedir, &args[2]) != NULL &&
-             byte_checker(&args[1], ct) && byte_checker(&args[2], ct) && (off_t)args[2] >= 0;
-
-    case SYS_CLOSE:
-      return is_user_vaddr(&args[1]) && pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
-             byte_checker(&args[1], ct);
-    case SYS_FILESIZE:
-      return is_user_vaddr(&args[1]) && pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
-             byte_checker(&args[1], ct);
+      return val_check(&args[1], ct) && val_check(&args[2], ct);
     case SYS_READ:
-      //return byte_checker(&args[1], ct) && byte_checker(&args[2], ct) &&
-      //is_user_vaddr((void*)args[2]);
     case SYS_WRITE: {
-      bool ret_val = is_user_vaddr(&args[1]) && is_user_vaddr(&args[2]) &&
-                     is_user_vaddr(&args[3]) && pagedir_get_page(ct->pagedir, &args[1]) != NULL &&
-                     pagedir_get_page(ct->pagedir, &args[2]) != NULL &&
-                     pagedir_get_page(ct->pagedir, &args[3]) != NULL &&
-                     byte_checker(&args[1], ct) && byte_checker(&args[3], ct);
+      bool ret_val =
+          val_check(&args[1], ct) && pointer_check(&args[2], ct) && val_check(&args[3], ct);
       if (!ret_val)
         return false;
-
+      /* Checks that buffer args[2] can actually store the size given in args[3] */
       for (size_t i = 0; i < (size_t)args[3]; i++) {
         ret_val = ret_val && is_user_vaddr(&((char*)args[2])[i]) &&
                   pagedir_get_page(ct->pagedir, &((char*)args[2])[i]);
@@ -121,15 +106,13 @@ bool correct_args(uint32_t* args) {
   return true;
 }
 
-// frees current thread and associated wait info struct
+/* frees current thread and associated wait info struct and file descriptors */
 void system_exit(int err) {
   struct thread* curr_thread = thread_current();
   struct p_wait_info* parent = curr_thread->parent_pwi;
-  // struct list* children = &(curr_thread->child_pwis);
-  // struct list_elem* iter;
   struct list* children = &(curr_thread->child_pwis);
   struct p_wait_info* pwi = NULL;
-
+  /* free children pwis */
   while (list_size(children) > 0) {
     pwi = list_entry(list_pop_back(children), struct p_wait_info, elem);
     lock_acquire(&(pwi->access));
@@ -140,6 +123,7 @@ void system_exit(int err) {
       lock_release(&(pwi->access));
     }
   }
+  /* free parent pwi */
   if (parent != NULL) {
     lock_acquire(&(parent->access));
     parent->ref_count--;
@@ -156,6 +140,7 @@ void system_exit(int err) {
   thread_exit();
 }
 
+/* retrieves file_info struct with file descriptor */
 struct file_info* get_file_info(int fd) {
   struct thread* curr_thread = thread_current();
   struct list_elem* iter;
