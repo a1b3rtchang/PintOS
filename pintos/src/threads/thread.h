@@ -97,7 +97,7 @@ struct file_info {
   struct list_elem elem;
 };
 
-struct list* sleeping_threads;
+struct list sleeping_threads;
 
 struct thread {
   /* New things */

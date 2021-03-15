@@ -95,7 +95,7 @@ void timer_sleep(int64_t ticks) {
   int64_t start = timer_ticks();
   struct thread* t = thread_current();
   t->num_ticks = start + ticks;
-  list_insert_ordered(sleeping_threads, &(t->sleepelem), less_list, less);
+  list_insert_ordered(&sleeping_threads, &(t->sleepelem), less_list, less);
   thread_block();
   intr_set_level(lvl);
   // ASSERT(intr_get_level() == INTR_ON);
@@ -153,7 +153,7 @@ static void timer_interrupt(struct intr_frame* args UNUSED) {
   struct thread* t;
   bool higher_prio = false;
   int curr_prio = thread_current()->priority;
-  for (iter = list_begin(sleeping_threads); iter != list_end(sleeping_threads); iter = list_next(iter)) {
+  for (iter = list_begin(&sleeping_threads); iter != list_end(&sleeping_threads); iter = list_next(iter)) {
     t = list_entry(iter, struct thread, sleepelem);
     if (timer_ticks() > t->num_ticks) {
       list_remove(iter);
