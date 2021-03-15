@@ -155,7 +155,7 @@ static void timer_interrupt(struct intr_frame* args UNUSED) {
   int curr_prio = thread_current()->priority;
   for (iter = list_begin(&sleeping_threads); iter != list_end(&sleeping_threads); iter = list_next(iter)) {
     t = list_entry(iter, struct thread, sleepelem);
-    if (timer_ticks() > t->num_ticks) {
+    if (timer_ticks() >= t->num_ticks) {
       list_remove(iter);
       thread_unblock(t);
       if (t->priority > curr_prio) {
