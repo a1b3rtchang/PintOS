@@ -97,8 +97,11 @@ struct file_info {
   struct list_elem elem;
 };
 
+struct list* sleeping_threads;
+
 struct thread {
   /* New things */
+  int num_ticks;
   struct list child_pwis;
   struct p_wait_info* parent_pwi;
   struct list* files;
@@ -112,6 +115,7 @@ struct thread {
   uint8_t* stack;           /* Saved stack pointer. */
   int priority;             /* Priority. */
   struct list_elem allelem; /* List element for all threads list. */
+  struct list_elem sleepelem; /* List element for sleeping thread list. */
 
   /* Shared between thread.c and synch.c. */
   struct list_elem elem; /* List element. */
