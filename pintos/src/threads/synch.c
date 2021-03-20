@@ -98,14 +98,27 @@ bool sema_try_down(struct semaphore* sema) {
    This function may be called from an interrupt handler. */
 void sema_up(struct semaphore* sema) {
   enum intr_level old_level;
-
+  struct thread* check_priority = NULL;
+  struct list_elem* mpt = NULL;
   ASSERT(sema != NULL);
 
   old_level = intr_disable();
-  if (!list_empty(&sema->waiters))
-    thread_unblock(list_entry(list_pop_front(&sema->waiters), struct thread, elem));
+  if (!list_empty(&sema->waiters)) {
+    mpt = max_priority_thread(&sema->waiters);
+    list_remove(mpt);
+    check_priority = list_entry(mpt, struct thread, elem);
+    thread_unblock(check_priority);
+  }
   sema->value++;
+  if (check_priority != NULL && intr_context()) {
+    intr_yield_on_return();
+  } else if (check_priority != NULL) {
+    thread_yield();
+  }
   intr_set_level(old_level);
+  //if (check_priority != NULL && !intr_context()) {
+  //    thread_yield();
+  //}
 }
 
 static void sema_test_helper(void* sema_);

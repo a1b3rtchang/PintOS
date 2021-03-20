@@ -188,7 +188,10 @@ tid_t thread_create(const char* name, int priority, thread_func* function, void*
 
   /* Add to run queue. */
   thread_unblock(t);
-
+  /* Project 2 */
+  if (priority > get_effective_priority(thread_current())) {
+    thread_yield(); /* We want tid to be returned first, then yield. */
+  }
   return tid;
 }
 
@@ -298,7 +301,13 @@ void thread_foreach(thread_action_func* func, void* aux) {
 }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
-void thread_set_priority(int new_priority) { thread_current()->priority = new_priority; }
+void thread_set_priority(int new_priority) {
+  enum intr_level old_level;
+  old_level = intr_disable();
+  thread_current()->priority = new_priority;
+  thread_current()->effective_priority = new_priority;
+  intr_set_level(old_level);
+}
 
 /* Returns the current thread's priority. */
 int thread_get_priority(void) { return thread_current()->priority; }
@@ -398,6 +407,7 @@ static void init_thread(struct thread* t, const char* name, int priority) {
   strlcpy(t->name, name, sizeof t->name);
   t->stack = (uint8_t*)t + PGSIZE;
   t->priority = priority;
+  t->effective_priority = priority;
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable();
@@ -422,10 +432,14 @@ static void* alloc_frame(struct thread* t, size_t size) {
    will be in the run queue.)  If the run queue is empty, return
    idle_thread. */
 static struct thread* next_thread_to_run(void) {
-  if (list_empty(&ready_list))
+  if (list_empty(&ready_list)) {
     return idle_thread;
-  else
-    return list_entry(list_pop_front(&ready_list), struct thread, elem);
+  } else {
+    struct list_elem* mpt = max_priority_thread(&ready_list);
+    list_remove(mpt);
+    return list_entry(mpt, /* Project 2 : Select highest effective priority thread. */
+                      struct thread, elem);
+  }
 }
 
 /* Completes a thread switch by activating the new thread's page
@@ -507,3 +521,35 @@ static tid_t allocate_tid(void) {
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof(struct thread, stack);
+
+/* Proejct 2 */
+int get_effective_priority(struct thread* t) { return t->effective_priority; }
+
+void set_effective_priority(struct thread* t, int priority) {
+  if (priority > t->priority) {
+    t->effective_priority = priority;
+  }
+}
+
+void donate_priority(struct lock* blocker) {
+  struct thread* curr_thread = thread_current();
+  int curr_thread_priority = get_effective_priority(curr_thread);
+  /* TODO */
+  //set_effective_priority(lock -> holder, curr_thread_priority);
+}
+
+bool thread_less_aux(struct thread* thread1, struct thread* thread2) {
+  return get_effective_priority(thread1) < get_effective_priority(thread2);
+}
+
+bool thread_less(const struct list_elem* t1, const struct list_elem* t2, void* aux) {
+  struct thread* thread1 = list_entry(t1, struct thread, elem);
+  struct thread* thread2 = list_entry(t2, struct thread, elem);
+  typedef bool comp(const struct thread*, const struct thread*);
+  comp* compare = aux;
+  return compare(thread1, thread2);
+}
+
+struct list_elem* max_priority_thread(struct list* l) {
+  return list_max(l, &thread_less, &thread_less_aux);
+}

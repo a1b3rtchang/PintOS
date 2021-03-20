@@ -112,9 +112,14 @@ struct thread {
   enum thread_status status; /* Thread state. */
   char name[16];             /* Name (for debugging purposes). */
   int fd_count;
-  uint8_t* stack;           /* Saved stack pointer. */
-  int priority;             /* Priority. */
-  struct list_elem allelem; /* List element for all threads list. */
+  uint8_t* stack; /* Saved stack pointer. */
+  int priority;   /* Priority. */
+  /* Project 2 */
+  int effective_priority;
+  struct lock waiting_lock;
+  struct list curr_locks;
+  /* Project 2 end */
+  struct list_elem allelem;   /* List element for all threads list. */
   struct list_elem sleepelem; /* List element for sleeping thread list. */
 
   /* Shared between thread.c and synch.c. */
@@ -136,6 +141,14 @@ extern bool thread_mlfqs;
 
 void thread_init(void);
 void thread_start(void);
+
+/* Project 2 */
+int get_effective_priority(struct thread* curr_thread);
+void set_effective_priority(struct thread* curr_thread, int priority);
+void donate_priority(struct lock* blocker);
+struct list_elem* max_priority_thread(struct list*);
+bool thread_less_aux(struct thread*, struct thread*);
+bool thread_less(const struct list_elem*, const struct list_elem*, void*);
 
 void thread_tick(void);
 void thread_print_stats(void);
