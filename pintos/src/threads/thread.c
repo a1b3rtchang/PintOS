@@ -279,6 +279,9 @@ void thread_yield(void) {
 
   ASSERT(!intr_context());
 
+  struct thread* mpt = list_entry(max_priority_thread(&ready_list), struct thread, elem);
+  if (mpt != NULL && get_effective_priority(cur) >= get_effective_priority(mpt))
+    return; /* Do not yield if cur is max priority */
   old_level = intr_disable();
   if (cur != idle_thread)
     list_push_back(&ready_list, &cur->elem);
@@ -304,13 +307,18 @@ void thread_foreach(thread_action_func* func, void* aux) {
 void thread_set_priority(int new_priority) {
   enum intr_level old_level;
   old_level = intr_disable();
-  thread_current()->priority = new_priority;
-  thread_current()->effective_priority = new_priority;
+  struct thread* curr_thread = thread_current();
+  if (curr_thread->priority == curr_thread->effective_priority ||
+      curr_thread->effective_priority < new_priority) {
+    curr_thread->effective_priority = new_priority;
+  }
+  curr_thread->priority = new_priority;
+  thread_yield();
   intr_set_level(old_level);
 }
 
 /* Returns the current thread's priority. */
-int thread_get_priority(void) { return thread_current()->priority; }
+int thread_get_priority(void) { return thread_current()->effective_priority; }
 
 /* Sets the current thread's nice value to NICE. */
 void thread_set_nice(int nice UNUSED) { /* Not yet implemented. */
@@ -407,7 +415,9 @@ static void init_thread(struct thread* t, const char* name, int priority) {
   strlcpy(t->name, name, sizeof t->name);
   t->stack = (uint8_t*)t + PGSIZE;
   t->priority = priority;
+  /* Project 2 */
   t->effective_priority = priority;
+  list_init(&t->curr_locks);
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable();
@@ -437,8 +447,8 @@ static struct thread* next_thread_to_run(void) {
   } else {
     struct list_elem* mpt = max_priority_thread(&ready_list);
     list_remove(mpt);
-    return list_entry(mpt, /* Project 2 : Select highest effective priority thread. */
-                      struct thread, elem);
+    return list_entry(mpt, struct thread,
+                      elem); /* Project 2 : Select highest effective priority thread. */
   }
 }
 
@@ -526,16 +536,54 @@ uint32_t thread_stack_ofs = offsetof(struct thread, stack);
 int get_effective_priority(struct thread* t) { return t->effective_priority; }
 
 void set_effective_priority(struct thread* t, int priority) {
-  if (priority > t->priority) {
+  enum intr_level old_level = intr_disable();
+  if (priority >= t->priority) {
     t->effective_priority = priority;
   }
+  intr_set_level(old_level);
 }
 
 void donate_priority(struct lock* blocker) {
   struct thread* curr_thread = thread_current();
   int curr_thread_priority = get_effective_priority(curr_thread);
   /* TODO */
-  //set_effective_priority(lock -> holder, curr_thread_priority);
+  while (blocker != NULL && blocker->holder != NULL) {
+    if (curr_thread_priority > get_effective_priority(blocker->holder)) {
+      set_effective_priority(blocker->holder, curr_thread_priority);
+    }
+    curr_thread = blocker->holder;
+    curr_thread_priority = get_effective_priority(curr_thread);
+    blocker = blocker->holder->waiting_lock;
+  }
+}
+
+void set_priority_after_release() {
+  struct thread* curr_thread = thread_current();
+  struct list* locks_held = &curr_thread->curr_locks;
+  if (list_empty(locks_held)) {
+    set_effective_priority(curr_thread, curr_thread->priority);
+  } else {
+    /* TODO */
+    /* We need to go backwards among waiters in locks_held and set priority
+           to the highest effective priority found. */
+    struct lock* lock;
+    struct list* wait_threads;
+    struct thread* thread;
+    int max = curr_thread->priority;
+    for (struct list_elem* l = list_begin(locks_held); l != list_end(locks_held);
+         l = list_next(l)) {
+      lock = list_entry(l, struct lock, elem);
+      wait_threads = &lock->semaphore.waiters;
+      for (struct list_elem* t = list_begin(wait_threads); t != list_end(wait_threads);
+           t = list_next(t)) {
+        thread = list_entry(t, struct thread, elem);
+        if (get_effective_priority(thread) > max) {
+          max = get_effective_priority(thread);
+        }
+      }
+    }
+    set_effective_priority(curr_thread, max);
+  }
 }
 
 bool thread_less_aux(struct thread* thread1, struct thread* thread2) {

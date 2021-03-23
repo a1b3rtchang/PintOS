@@ -31,6 +31,7 @@
 #include <string.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+#include "threads/malloc.h"
 
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
@@ -110,15 +111,15 @@ void sema_up(struct semaphore* sema) {
     thread_unblock(check_priority);
   }
   sema->value++;
-  if (check_priority != NULL && intr_context()) {
-    intr_yield_on_return();
-  } else if (check_priority != NULL) {
-    thread_yield();
+  if (check_priority != NULL &&
+      get_effective_priority(check_priority) > get_effective_priority(thread_current())) {
+    if (intr_context()) {
+      intr_yield_on_return();
+    } else {
+      thread_yield();
+    }
   }
   intr_set_level(old_level);
-  //if (check_priority != NULL && !intr_context()) {
-  //    thread_yield();
-  //}
 }
 
 static void sema_test_helper(void* sema_);
@@ -183,12 +184,17 @@ void lock_init(struct lock* lock) {
    interrupts disabled, but interrupts will be turned back on if
    we need to sleep. */
 void lock_acquire(struct lock* lock) {
+  enum intr_level old_level = intr_disable();
   ASSERT(lock != NULL);
   ASSERT(!intr_context());
   ASSERT(!lock_held_by_current_thread(lock));
-
+  donate_priority(lock);
+  thread_current()->waiting_lock = lock;
   sema_down(&lock->semaphore);
+  thread_current()->waiting_lock = NULL;
   lock->holder = thread_current();
+  list_push_back(&thread_current()->curr_locks, &lock->elem);
+  intr_set_level(old_level);
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -215,11 +221,15 @@ bool lock_try_acquire(struct lock* lock) {
    make sense to try to release a lock within an interrupt
    handler. */
 void lock_release(struct lock* lock) {
+  enum intr_level old_level = intr_disable();
   ASSERT(lock != NULL);
   ASSERT(lock_held_by_current_thread(lock));
-
-  lock->holder = NULL;
   sema_up(&lock->semaphore);
+  list_remove(&lock->elem);
+  set_priority_after_release();
+  lock->holder = NULL;
+  thread_yield();
+  intr_set_level(old_level);
 }
 
 /* Returns true if the current thread holds LOCK, false

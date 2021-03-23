@@ -116,7 +116,7 @@ struct thread {
   int priority;   /* Priority. */
   /* Project 2 */
   int effective_priority;
-  struct lock waiting_lock;
+  struct lock* waiting_lock;
   struct list curr_locks;
   /* Project 2 end */
   struct list_elem allelem;   /* List element for all threads list. */
@@ -146,10 +146,11 @@ void thread_start(void);
 int get_effective_priority(struct thread* curr_thread);
 void set_effective_priority(struct thread* curr_thread, int priority);
 void donate_priority(struct lock* blocker);
+void set_priority_after_release(void);
 struct list_elem* max_priority_thread(struct list*);
 bool thread_less_aux(struct thread*, struct thread*);
 bool thread_less(const struct list_elem*, const struct list_elem*, void*);
-
+/* PROJECT 2 END */
 void thread_tick(void);
 void thread_print_stats(void);
 
