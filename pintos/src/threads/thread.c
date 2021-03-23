@@ -279,9 +279,12 @@ void thread_yield(void) {
 
   ASSERT(!intr_context());
 
-  struct thread* mpt = list_entry(max_priority_thread(&ready_list), struct thread, elem);
-  if (mpt != NULL && get_effective_priority(cur) >= get_effective_priority(mpt))
-    return; /* Do not yield if cur is max priority */
+  //struct thread* mpt;
+  //if (list_empty(&ready_list)) return;
+  //mpt = list_entry(max_priority_thread(&ready_list), struct thread, elem);
+  //if (mpt != NULL && get_effective_priority(cur) >= get_effective_priority(mpt)) {
+  //  return; /* Do not yield if cur is max priority */
+  //}
   old_level = intr_disable();
   if (cur != idle_thread)
     list_push_back(&ready_list, &cur->elem);

@@ -33,6 +33,8 @@
 #include "threads/thread.h"
 #include "threads/malloc.h"
 
+bool cond_wait_less(const struct list_elem*, const struct list_elem*, void*);
+
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
    manipulating it:
@@ -245,7 +247,16 @@ bool lock_held_by_current_thread(const struct lock* lock) {
 struct semaphore_elem {
   struct list_elem elem;      /* List element. */
   struct semaphore semaphore; /* This semaphore. */
+  struct thread* curr_thread;
 };
+
+bool cond_wait_less(const struct list_elem* se1, const struct list_elem* se2, void* aux) {
+  struct thread* t1 = list_entry(se1, struct semaphore_elem, elem)->curr_thread;
+  struct thread* t2 = list_entry(se2, struct semaphore_elem, elem)->curr_thread;
+  typedef bool comp(const struct thread*, const struct thread*);
+  comp* compare = aux;
+  return compare(t1, t2);
+}
 
 /* Initializes condition variable COND.  A condition variable
    allows one piece of code to signal a condition and cooperating
@@ -285,6 +296,7 @@ void cond_wait(struct condition* cond, struct lock* lock) {
   ASSERT(lock_held_by_current_thread(lock));
 
   sema_init(&waiter.semaphore, 0);
+  waiter.curr_thread = thread_current();
   list_push_back(&cond->waiters, &waiter.elem);
   lock_release(lock);
   sema_down(&waiter.semaphore);
@@ -303,9 +315,12 @@ void cond_signal(struct condition* cond, struct lock* lock UNUSED) {
   ASSERT(lock != NULL);
   ASSERT(!intr_context());
   ASSERT(lock_held_by_current_thread(lock));
-
-  if (!list_empty(&cond->waiters))
-    sema_up(&list_entry(list_pop_front(&cond->waiters), struct semaphore_elem, elem)->semaphore);
+  struct list_elem* se;
+  if (!list_empty(&cond->waiters)) {
+    se = list_max(&cond->waiters, &cond_wait_less, &thread_less_aux);
+    list_remove(se);
+    sema_up(&list_entry(se, struct semaphore_elem, elem)->semaphore);
+  }
 }
 
 /* Wakes up all threads, if any, waiting on COND (protected by
