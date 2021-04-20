@@ -36,6 +36,7 @@
 #include "devices/ide.h"
 #include "filesys/filesys.h"
 #include "filesys/fsutil.h"
+#include "filesys/buffer.h"
 #endif
 
 /* Page directory with kernel mappings only. */
