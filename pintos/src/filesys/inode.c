@@ -5,19 +5,30 @@
 #include <string.h>
 #include "filesys/filesys.h"
 #include "filesys/free-map.h"
-#include "threads/malloc.h"
 #include "filesys/buffer.h"
+#include "threads/malloc.h"
+#include "threads/synch.h"
 
 /* Identifies an inode. */
 #define INODE_MAGIC 0x494e4f44
 
+static struct lock inode_open_lock;
+
 /* On-disk inode.
    Must be exactly BLOCK_SECTOR_SIZE bytes long. */
 struct inode_disk {
-  block_sector_t start; /* First data sector. */
-  off_t length;         /* File size in bytes. */
-  unsigned magic;       /* Magic number. */
-  uint32_t unused[125]; /* Not used. */
+  //block_sector_t start; /* First data sector. */
+  int is_directory;
+  int idklmfao;
+  off_t length;                   /* File size in bytes. */
+  unsigned magic;                 /* Magic number. */
+  block_sector_t indirect_ptr;    /* Indirect Pointer */
+  block_sector_t db_indirect_ptr; /* Doubly Indirect Pointer */
+  block_sector_t direct_ptr[122]; /* Not used. */
+};
+
+struct indirect {
+  block_sector_t pointers[128];
 };
 
 /* Returns the number of sectors to allocate for an inode SIZE
@@ -26,12 +37,13 @@ static inline size_t bytes_to_sectors(off_t size) { return DIV_ROUND_UP(size, BL
 
 /* In-memory inode. */
 struct inode {
-  struct list_elem elem;  /* Element in inode list. */
-  block_sector_t sector;  /* Sector number of disk location. */
-  int open_cnt;           /* Number of openers. */
-  bool removed;           /* True if deleted, false otherwise. */
-  int deny_write_cnt;     /* 0: writes ok, >0: deny writes. */
-  struct inode_disk data; /* Inode content. */
+  struct list_elem elem; /* Element in inode list. */
+  block_sector_t sector; /* Sector number of disk location. */
+  int open_cnt;          /* Number of openers. */
+  bool removed;          /* True if deleted, false otherwise. */
+  int deny_write_cnt;    /* 0: writes ok, >0: deny writes. */
+  struct lock lock;      /* Protects metadata from race conditions. */
+  //struct inode_disk data; /* Inode content. */
 };
 
 /* Returns the block device sector that contains byte offset POS
@@ -40,20 +52,54 @@ struct inode {
    POS. */
 static block_sector_t byte_to_sector(const struct inode* inode, off_t pos) {
   ASSERT(inode != NULL);
+  int index = (int)(pos / 512);
+  struct inode_disk* disk;
+  char buffer[512];
+  buffer_read(fs_device, inode->sector, (void*)&buffer);
+  disk = (struct inode_disk*)&buffer;
+  if (index >= disk->length || index >= 8388608)
+    return -1;
+  if (0 <= index && index < 122)
+    return disk->direct_ptr[index];
+  if (122 <= index && index < 122 + 128) {
+    struct indirect* idp;
+    char buffer_idp[512];
+    buffer_read(fs_device, disk->indirect_ptr, (void*)&buffer_idp); //fs_device???
+    idp = (struct indirect*)&buffer_idp;
+    return idp->pointers[index - 122];
+  }
+  if (122 + 128 <= index && index < (int)(8388608 / 512)) {
+    struct indirect *idp1, *idp2;
+    char buffer_idp1[512];
+    char buffer_idp2[512];
+    buffer_read(fs_device, disk->db_indirect_ptr, (void*)&buffer_idp1); //fs_device???
+    idp1 = (struct indirect*)&buffer_idp1;
+    buffer_read(fs_device, idp1->pointers[(int)((index - 122 - 128) / 128)],
+                (void*)&buffer_idp2); //fs_device???
+    idp2 = (struct indirect*)&buffer_idp2;
+    return idp2->pointers[(index - 122 - 128) % 128];
+  }
+  return -1;
+
+  /* OLD IMPLEMENTATION
   if (pos < inode->data.length)
     return inode->data.start + pos / BLOCK_SECTOR_SIZE;
   else
     return -1;
+    OLD IMPLEMENTATION */
 }
 
 /* List of open inodes, so that opening a single inode twice
    returns the same `struct inode'. */
 static struct list open_inodes;
+static struct lock open_inodes_lock;
 
 /* Initializes the inode module. */
 void inode_init(void) {
   list_init(&open_inodes);
   buffer_init();
+  lock_init(&inode_open_lock);
+  lock_init(&open_inodes_lock);
 }
 
 /* Initializes an inode with LENGTH bytes of data and
@@ -96,6 +142,7 @@ bool inode_create(block_sector_t sector, off_t length) {
    and returns a `struct inode' that contains it.
    Returns a null pointer if memory allocation fails. */
 struct inode* inode_open(block_sector_t sector) {
+  lock_acquire(&inode_open_lock);
   struct list_elem* e;
   struct inode* inode;
 
@@ -104,14 +151,17 @@ struct inode* inode_open(block_sector_t sector) {
     inode = list_entry(e, struct inode, elem);
     if (inode->sector == sector) {
       inode_reopen(inode);
+      lock_release(&inode_open_lock);
       return inode;
     }
   }
 
   /* Allocate memory. */
   inode = malloc(sizeof *inode);
-  if (inode == NULL)
+  if (inode == NULL) {
+    lock_release(&inode_open_lock);
     return NULL;
+  }
 
   /* Initialize. */
   list_push_front(&open_inodes, &inode->elem);
@@ -120,6 +170,7 @@ struct inode* inode_open(block_sector_t sector) {
   inode->deny_write_cnt = 0;
   inode->removed = false;
   block_read(fs_device, inode->sector, &inode->data);
+  lock_release(&inode_open_lock);
   return inode;
 }
 

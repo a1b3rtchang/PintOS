@@ -10,9 +10,9 @@
 #include "threads/malloc.h"
 #include "threads/thread.h"
 
-struct buffer cache[64];
-struct list cache_list;
-struct lock lru_permission; // dont want threads changing order at the same time
+static struct buffer cache[64];
+static struct list cache_list;
+static struct lock lru_permission; // dont want threads changing order at the same time
 void write_back(struct buffer*);
 
 void buffer_init() {
@@ -25,7 +25,10 @@ void buffer_init() {
   lock_init(&lru_permission);
 }
 
-void write_back(struct buffer* b) { block_write(fs_device, b->sect_num, &b->data); }
+void write_back(struct buffer* b) {
+  block_write(fs_device, b->sect_num, &b->data);
+  b->dirty = 0;
+}
 
 void buffer_read(struct block* block, block_sector_t sect_num, void* buf) {
   lock_acquire(&lru_permission);
@@ -69,7 +72,6 @@ void buffer_read(struct block* block, block_sector_t sect_num, void* buf) {
     write_back(b);
   }
   b->sect_num = sect_num;
-  b->dirty = 0;
   block_read(fs_device, sect_num, &b->data); // actually read from disk
   memcpy(buf, &b->data, BLOCK_SECTOR_SIZE);
   lock_release(&b->change_data);
