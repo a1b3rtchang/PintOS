@@ -11,7 +11,7 @@
 #include "threads/thread.h"
 
 struct buffer cache[64];
-struct list* cache_list;
+struct list cache_list;
 struct lock lru_permission; // dont want threads changing order at the same time
 void write_back(struct buffer*);
 
@@ -21,7 +21,7 @@ void buffer_init() {
     cache[i].dirty = 0;
     lock_init(&cache[i].change_data);
   }
-  list_init(cache_list);
+  list_init(&cache_list);
   lock_init(&lru_permission);
 }
 
@@ -42,7 +42,7 @@ void buffer_read(struct block* block, block_sector_t sect_num, void* buf) {
           lock_release(&cache[i].change_data);
           /*move to front*/
           list_remove(&cache[i].elem);
-          list_push_front(cache_list, &cache[i].elem);
+          list_push_front(&cache_list, &cache[i].elem);
           return;
         }
         again = true; /*try again */
@@ -52,8 +52,8 @@ void buffer_read(struct block* block, block_sector_t sect_num, void* buf) {
   // code below handles a cache miss
   /* if hair pulling occurs, remove locks below for blocks */
   struct buffer* b;
-  if (list_size(cache_list) == 64) { // evict LRU if cache list is full
-    b = list_entry(list_pop_back(cache_list), struct buffer, elem);
+  if (list_size(&cache_list) == 64) { // evict LRU if cache list is full
+    b = list_entry(list_pop_back(&cache_list), struct buffer, elem);
     lock_acquire(&b->change_data);
   } else { // create new buffer entry
     for (int i = 0; i < 64; i++) {
@@ -73,7 +73,7 @@ void buffer_read(struct block* block, block_sector_t sect_num, void* buf) {
   block_read(fs_device, sect_num, &b->data); // actually read from disk
   memcpy(buf, &b->data, BLOCK_SECTOR_SIZE);
   lock_release(&b->change_data);
-  list_push_front(cache_list, &b->elem);
+  list_push_front(&cache_list, &b->elem);
   lock_release(&lru_permission);
 }
 
@@ -95,7 +95,7 @@ void buffer_write(struct block* block, block_sector_t sect_num, void* buf) {
           lock_release(&cache[i].change_data);
           /*move to front*/
           list_remove(&cache[i].elem);
-          list_push_front(cache_list, &cache[i].elem);
+          list_push_front(&cache_list, &cache[i].elem);
           return;
         }
         again = true; /*try again */
@@ -105,8 +105,8 @@ void buffer_write(struct block* block, block_sector_t sect_num, void* buf) {
   // code below handles a cache miss
   /* if hair pulling occurs, remove locks below for blocks */
   struct buffer* b;
-  if (list_size(cache_list) == 64) { // evict LRU if cache list is full
-    b = list_pop_back(cache_list);
+  if (list_size(&cache_list) == 64) { // evict LRU if cache list is full
+    b = list_entry(list_pop_back(&cache_list), struct buffer, elem);
     lock_acquire(&b->change_data);
   } else { // create new buffer entry
     for (int i = 0; i < 64; i++) {
@@ -126,7 +126,7 @@ void buffer_write(struct block* block, block_sector_t sect_num, void* buf) {
   //block_read(fs_device, sect_num, &b->data); // actually read from disk
   memcpy(&b->data, buf, BLOCK_SECTOR_SIZE);
   lock_release(&b->change_data);
-  list_push_front(cache_list, &b->elem);
+  list_push_front(&cache_list, &b->elem);
   lock_release(&lru_permission);
 }
 
