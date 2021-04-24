@@ -22,6 +22,7 @@ void buffer_init() {
     lock_init(&cache[i].change_data);
   }
   list_init(&cache_list);
+  list_size(&cache_list);
   lock_init(&lru_permission);
 }
 
@@ -125,6 +126,7 @@ void buffer_write(struct block* block, block_sector_t sect_num, void* buf) {
   }
   b->sect_num = sect_num;
   b->dirty = 1;
+  b->valid = 1;
   //block_read(fs_device, sect_num, &b->data); // actually read from disk
   memcpy(&b->data, buf, BLOCK_SECTOR_SIZE);
   lock_release(&b->change_data);
@@ -134,6 +136,7 @@ void buffer_write(struct block* block, block_sector_t sect_num, void* buf) {
 
 void buffer_flush() { // called during filesys_done
   for (int i = 0; i < 64; i++) {
+    cache[i].valid = 0;
     if (cache[i].dirty == 1) {
       write_back(&cache[i]); // write the entire
     }
