@@ -31,9 +31,9 @@ struct indirect {
   block_sector_t pointers[128];
 };
 
-bool allocate_direct(struct inode_disk*, off_t);
-bool allocate_indirect(block_sector_t*, off_t);
-bool allocate_db_indirect(block_sector_t*, off_t);
+bool allocate_direct(struct inode_disk*, off_t, off_t);
+bool allocate_indirect(block_sector_t*, off_t, off_t);
+bool allocate_db_indirect(block_sector_t*, off_t, off_t);
 
 /* Returns the number of sectors to allocate for an inode SIZE
    bytes long. */
@@ -105,10 +105,10 @@ void inode_init(void) {
   lock_init(&open_inodes_lock);
 }
 
-bool allocate_direct(struct inode_disk* disk, off_t length) {
-  int i = 0;
-  bool success;
-  while (i < length && i < 122) {
+bool allocate_direct(struct inode_disk* disk, off_t start, off_t length) {
+  int i = start;
+  bool success = true;
+  while (i < start + length && i < 122) {
     success = free_map_allocate(1, &disk->direct_ptr[i]);
     if (!success) {
       // uno reverse
@@ -119,13 +119,13 @@ bool allocate_direct(struct inode_disk* disk, off_t length) {
   return success;
 }
 
-bool allocate_indirect(block_sector_t* ptr, off_t length) {
+bool allocate_indirect(block_sector_t* ptr, off_t start, off_t length) {
   free_map_allocate(1, ptr);
   char buffer[512];
   struct indirect* indirect_ptr = (struct indirect*)buffer;
-  int i = 122;
-  bool success;
-  while (i < length && i < 122 + 128) {
+  int i = 122 > start ? 122 : start;
+  bool success = true;
+  while (i < start + length && i < 122 + 128) {
     success = free_map_allocate(1, &indirect_ptr->pointers[i - 122]);
     if (!success) {
       // uno reverse
@@ -137,15 +137,17 @@ bool allocate_indirect(block_sector_t* ptr, off_t length) {
   return success;
 }
 
-bool allocate_db_indirect(block_sector_t* ptr, off_t length) {
+bool allocate_db_indirect(block_sector_t* ptr, off_t start, off_t length) {
   free_map_allocate(1, ptr);
   char buffer[512];
   // buffer_read(fs_device, ptr, (void*)&buffer);
   struct indirect* db_indirect_ptr = (struct indirect*)buffer;
-  int i = 122 + 128;
-  bool success;
-  while (i < length) {
-    success = allocate_indirect(&db_indirect_ptr->pointers[(int)((i - 122 - 128) / 128)], length);
+  int i = (122 + 128) > start ? (122 + 128) : start;
+  bool success = true;
+  while (i < start + length) {
+    success =
+        allocate_indirect(&db_indirect_ptr->pointers[(int)((i - 122 - 128) / 128)], i % 128,
+                          (128 - (i % 128)) < (length - i) ? (128 - (i % 128)) : (length - i));
     if (!success) {
       // uno reverse
       return success;
@@ -176,12 +178,12 @@ bool inode_create(block_sector_t sector, off_t length) {
   disk_inode = (struct inode_disk*)buffer;
   if (disk_inode != NULL) {
     off_t num_sectors = length / BLOCK_SECTOR_SIZE;
-    success = allocate_direct(disk_inode, num_sectors);
+    success = allocate_direct(disk_inode, 0, num_sectors);
     if (success) {
-      success = allocate_indirect(&disk_inode->indirect_ptr, num_sectors);
+      success = allocate_indirect(&disk_inode->indirect_ptr, 0, num_sectors);
     }
     if (success) {
-      success = allocate_db_indirect(&disk_inode->db_indirect_ptr, num_sectors);
+      success = allocate_db_indirect(&disk_inode->db_indirect_ptr, 0, num_sectors);
     }
     buffer_write(fs_device, sector, (void*)buffer);
   }
@@ -340,6 +342,19 @@ off_t inode_write_at(struct inode* inode, const void* buffer_, off_t size, off_t
     return 0;
   if (inode_length(inode) < offset + size) {
     //Choji Expansion Jutsu
+    off_t start = inode_length(inode);
+    off_t length = offset + size - start;
+    struct inode_disk* disk;
+    char buffer[512];
+    buffer_read(fs_device, inode->sector, (void*)buffer);
+    disk = (struct inode_disk*)buffer;
+    bool success = allocate_direct(disk, start, length);
+    if (success) {
+      success = allocate_indirect(&disk->indirect_ptr, start, length);
+    }
+    if (success) {
+      success = allocate_db_indirect(&disk->db_indirect_ptr, start, length);
+    }
   }
 
   while (size > 0) {
