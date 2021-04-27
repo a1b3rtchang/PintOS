@@ -55,19 +55,34 @@ void free_map_release(block_sector_t sector, size_t cnt) {
 
 /* Opens the free map file and reads it from disk. */
 void free_map_open(void) {
+  bool recurse = lock_held_by_current_thread(&free_map_lock);
+  if (!recurse)
+    lock_acquire(&free_map_lock);
   free_map_file = file_open(inode_open(FREE_MAP_SECTOR));
   if (free_map_file == NULL)
     PANIC("can't open free map");
   if (!bitmap_read(free_map, free_map_file))
     PANIC("can't read free map");
+  if (!recurse)
+    lock_release(&free_map_lock);
 }
 
 /* Writes the free map to disk and closes the free map file. */
-void free_map_close(void) { file_close(free_map_file); }
+void free_map_close(void) {
+  bool recurse = lock_held_by_current_thread(&free_map_lock);
+  if (!recurse)
+    lock_acquire(&free_map_lock);
+  file_close(free_map_file);
+  if (!recurse)
+    lock_release(&free_map_lock);
+}
 
 /* Creates a new free map file on disk and writes the free map to
    it. */
 void free_map_create(void) {
+  bool recurse = lock_held_by_current_thread(&free_map_lock);
+  if (!recurse)
+    lock_acquire(&free_map_lock);
   /* Create inode. */
   if (!inode_create(FREE_MAP_SECTOR, bitmap_file_size(free_map)))
     PANIC("free map creation failed");
@@ -78,4 +93,6 @@ void free_map_create(void) {
     PANIC("can't open free map");
   if (!bitmap_write(free_map, free_map_file))
     PANIC("can't write free map");
+  if (!recurse)
+    lock_release(&free_map_lock);
 }

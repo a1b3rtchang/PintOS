@@ -14,6 +14,7 @@ static struct buffer cache[64];
 static struct list cache_list;
 static struct lock lru_permission; // dont want threads changing order at the same time
 void write_back(struct buffer*);
+void acquire_entry(block_sector_t);
 
 void buffer_init() {
   for (int i = 0; i < 64; i++) {
@@ -31,6 +32,8 @@ void write_back(struct buffer* b) {
   b->dirty = 0;
 }
 
+void acquire_entry(block_sector_t sect_num) { return; }
+
 void buffer_read(struct block* block, block_sector_t sect_num, void* buf) {
   lock_acquire(&lru_permission);
   bool again = true;
@@ -45,10 +48,14 @@ void buffer_read(struct block* block, block_sector_t sect_num, void* buf) {
           memcpy(buf, &cache[i].data, BLOCK_SECTOR_SIZE);
           lock_release(&cache[i].change_data);
           /*move to front*/
+          lock_acquire(&lru_permission);
           list_remove(&cache[i].elem);
           list_push_front(&cache_list, &cache[i].elem);
+          lock_release(&lru_permission);
           return;
         }
+        lock_release(&cache[i].change_data);
+        lock_acquire(&lru_permission);
         again = true; /*try again */
       }
     }
@@ -72,6 +79,8 @@ void buffer_read(struct block* block, block_sector_t sect_num, void* buf) {
   if (b->dirty == 1) { // if evicted block has dirty bit, write back to disk
     write_back(b);
   }
+  b->dirty = 0;
+  b->valid = 1;
   b->sect_num = sect_num;
   block_read(fs_device, sect_num, &b->data); // actually read from disk
   memcpy(buf, &b->data, BLOCK_SECTOR_SIZE);
@@ -97,10 +106,14 @@ void buffer_write(struct block* block, block_sector_t sect_num, void* buf) {
           cache[i].dirty = true;
           lock_release(&cache[i].change_data);
           /*move to front*/
+          lock_acquire(&lru_permission);
           list_remove(&cache[i].elem);
           list_push_front(&cache_list, &cache[i].elem);
+          lock_release(&lru_permission);
           return;
         }
+        lock_release(&cache[i].change_data);
+        lock_acquire(&lru_permission);
         again = true; /*try again */
       }
     }
@@ -127,11 +140,41 @@ void buffer_write(struct block* block, block_sector_t sect_num, void* buf) {
   b->sect_num = sect_num;
   b->dirty = 1;
   b->valid = 1;
-  //block_read(fs_device, sect_num, &b->data); // actually read from disk
+  //block_write(fs_device, sect_num, &b->data); // actually read from disk
   memcpy(&b->data, buf, BLOCK_SECTOR_SIZE);
   lock_release(&b->change_data);
   list_push_front(&cache_list, &b->elem);
   lock_release(&lru_permission);
+}
+
+void buffer_evict(block_sector_t sect_num) {
+  lock_acquire(&lru_permission);
+  bool again = true;
+  while (again) {
+    again = false;
+    for (int i = 0; i < 64; i++) {
+      if (cache[i].sect_num == sect_num && cache[i].valid == 1) { // cache hit
+        lock_release(&lru_permission);
+
+        lock_acquire(&cache[i].change_data);
+        if (cache[i].sect_num == sect_num) {
+          cache[i].valid = 0;
+          lock_release(&cache[i].change_data);
+          /*move to front*/
+          lock_acquire(&lru_permission);
+          list_remove(&cache[i].elem);
+          lock_release(&lru_permission);
+          if (cache[i].dirty == 1)
+            write_back(&cache[i]);
+          cache[i].dirty = 0;
+          return;
+        }
+        lock_release(&cache[i].change_data);
+        lock_acquire(&lru_permission);
+        again = true; /*try again */
+      }
+    }
+  }
 }
 
 void buffer_flush() { // called during filesys_done

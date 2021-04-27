@@ -16,5 +16,5 @@ void buffer_init(void);
 void buffer_read(struct block*, block_sector_t, void*);
 void buffer_write(struct block*, block_sector_t, void*);
 void buffer_flush(void);
-
+void buffer_evict(block_sector_t);
 #endif
