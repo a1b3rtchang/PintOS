@@ -37,6 +37,7 @@ bool allocate_db_indirect(block_sector_t*, off_t, off_t);
 bool expand_inode_disk(struct inode_disk*, off_t);
 void shrink_inode_disk(struct inode_disk*, off_t);
 bool resize_inode(struct inode*, off_t);
+void set_directory(const struct inode*, bool);
 bool sanity_check(void);
 
 /* Returns the number of sectors to allocate for an inode SIZE
@@ -62,11 +63,9 @@ static block_sector_t byte_to_sector(const struct inode* inode, off_t pos) {
   int index = (int)(pos / 512);
   struct inode_disk* disk;
   char* buffer = malloc(sizeof(char) * 512);
-  struct indirect* idp;
-  char* buffer_idp = malloc(sizeof(char) * 512);
-  struct indirect *idp1, *idp2;
-  char* buffer_idp1 = malloc(sizeof(char) * 512);
-  char* buffer_idp2 = malloc(sizeof(char) * 512);
+  if (buffer == NULL)
+    return -1;
+
   block_sector_t rv;
   buffer_read(fs_device, inode->sector, (void*)buffer);
   disk = (struct inode_disk*)buffer;
@@ -77,23 +76,39 @@ static block_sector_t byte_to_sector(const struct inode* inode, off_t pos) {
     rv = disk->direct_ptr[index];
   }
   if (122 <= index && index < 122 + 128) {
-
-    buffer_read(fs_device, disk->indirect_ptr, (void*)buffer_idp); //fs_device???
-    idp = (struct indirect*)buffer_idp;
-    rv = idp->pointers[index - 122];
+    struct indirect* idp;
+    char* buffer_idp = malloc(sizeof(char) * 512);
+    if (buffer_idp == NULL) {
+      rv = -1;
+    } else {
+      buffer_read(fs_device, disk->indirect_ptr, (void*)buffer_idp); //fs_device???
+      idp = (struct indirect*)buffer_idp;
+      rv = idp->pointers[index - 122];
+      free(buffer_idp);
+    }
   }
   if (122 + 128 <= index && index < (int)(8388608 / 512)) {
-    buffer_read(fs_device, disk->db_indirect_ptr, (void*)buffer_idp1); //fs_device???
-    idp1 = (struct indirect*)buffer_idp1;
-    buffer_read(fs_device, idp1->pointers[(int)((index - 122 - 128) / 128)],
-                (void*)buffer_idp2); //fs_device???
-    idp2 = (struct indirect*)buffer_idp2;
-    rv = idp2->pointers[(index - 122 - 128) % 128];
+    struct indirect *idp1, *idp2;
+    char* buffer_idp1 = malloc(sizeof(char) * 512);
+    char* buffer_idp2 = malloc(sizeof(char) * 512);
+    if (buffer_idp1 == NULL || buffer_idp2 == NULL) {
+      rv = -1;
+      if (buffer_idp1 != NULL)
+        free(buffer_idp1);
+      if (buffer_idp2 != NULL)
+        free(buffer_idp2);
+    } else {
+      buffer_read(fs_device, disk->db_indirect_ptr, (void*)buffer_idp1); //fs_device???
+      idp1 = (struct indirect*)buffer_idp1;
+      buffer_read(fs_device, idp1->pointers[(int)((index - 122 - 128) / 128)],
+                  (void*)buffer_idp2); //fs_device???
+      idp2 = (struct indirect*)buffer_idp2;
+      rv = idp2->pointers[(index - 122 - 128) % 128];
+      free(buffer_idp1);
+      free(buffer_idp2);
+    }
   }
   free(buffer);
-  free(buffer_idp);
-  free(buffer_idp1);
-  free(buffer_idp2);
   return rv;
 }
 
@@ -338,6 +353,17 @@ bool allocate_db_indirect(block_sector_t* ptr, off_t start, off_t length) {
   return success;
 }
 
+/* Creates a directory. calls inode_create and sets the is_directory
+   in inode_disk to true. */
+bool inode_create_dir(block_sector_t sector, off_t length) {
+  bool success = inode_create(sector, length);
+  struct inode* inode = malloc(sizeof(struct inode));
+  inode->sector = sector;
+  if (success)
+    set_directory(inode, true);
+  return success;
+}
+
 /* Initializes an inode with LENGTH bytes of data and
    writes the new inode to sector SECTOR on the file system
    device.
@@ -351,35 +377,12 @@ bool inode_create(block_sector_t sector, off_t length) {
   /* If this assertion fails, the inode structure is not exactly
      one sector in size, and you should fix that. */
   ASSERT(sizeof *disk_inode == BLOCK_SECTOR_SIZE);
-  char* inode_buf = malloc(sizeof(char) * 512);
-  struct inode* inode = (struct inode*)inode_buf;
+
+  struct inode* inode = malloc(sizeof(struct inode));
   inode->sector = sector;
-  //inode->open_cnt = 0;
-  //inode->removed = false;
-  //inode->deny_write_cnt = 0;
-  //success = free_map_allocate(1, &inode->sector);
-  //if (!success) {
-  //  return false;
-  // }
   success = resize_inode(inode, length);
-  //if (success) {
-  //  free_map_release(inode->sector, 1);
-  // }
-  //buffer_write(fs_device, sector, (void*)inode_buf);
-  /*  
-  if (disk_inode != NULL) {
-    off_t num_sectors = length / BLOCK_SECTOR_SIZE;
-    success = allocate_direct(disk_inode, 0, num_sectors);
-    if (success) {
-      success = allocate_indirect(&disk_inode->indirect_ptr, 0, num_sectors);
-    }
-    if (success) {
-      success = allocate_db_indirect(&disk_inode->db_indirect_ptr, 0, num_sectors);
-    }
-    disk_inode->length = length;
-    buffer_write(fs_device, sector, (void*)buffer);
-  }
-*/
+  set_directory(inode, false);
+  free(inode);
   return success;
 }
 
@@ -387,9 +390,11 @@ bool inode_create(block_sector_t sector, off_t length) {
    and returns a `struct inode' that contains it.
    Returns a null pointer if memory allocation fails. */
 struct inode* inode_open(block_sector_t sector) {
-  bool recurse = lock_held_by_current_thread(&inode_open_lock);
-  if (!recurse)
+  //bool recurse = lock_held_by_current_thread(&inode_open_lock);
+  /*if (!recurse) {
     lock_acquire(&inode_open_lock);
+    lock_acquire(&open_inodes_lock);
+    }*/
   struct list_elem* e;
   struct inode* inode;
 
@@ -398,50 +403,52 @@ struct inode* inode_open(block_sector_t sector) {
     inode = list_entry(e, struct inode, elem);
     if (inode->sector == sector) {
       inode_reopen(inode);
-      if (!recurse)
+      /*if (!recurse) {
+        lock_release(&open_inodes_lock);          
         lock_release(&inode_open_lock);
+        }*/
       return inode;
     }
   }
+  /*if (!recurse)
+    lock_release(&open_inodes_lock);*/
 
   /* Allocate memory. */
   inode = malloc(sizeof *inode);
   //char* buffer = malloc(sizeof(char) * 512);
   if (inode == NULL) {
-    if (!recurse)
-      lock_release(&inode_open_lock);
+    /*if (!recurse)
+        lock_release(&inode_open_lock);*/
     return NULL;
   }
 
-  //buffer_read(fs_device, sector, (void*)buffer);
-  //inode = (struct inode*)buffer;
-
   //free(inode);
   /* Initialize. */
-  lock_acquire(&open_inodes_lock);
-  list_push_front(&open_inodes, &inode->elem);
-  lock_release(&open_inodes_lock);
   inode->open_cnt = 1;
   inode->deny_write_cnt = 0;
   inode->removed = false;
   lock_init(&inode->lock);
   inode->sector = sector;
+  lock_acquire(&open_inodes_lock);
+  list_push_front(&open_inodes, &inode->elem);
+  lock_release(&open_inodes_lock);
   int len = inode_length(inode);
-  //buffer_read(fs_device, inode->sector, (void*)dummy);
-  if (!recurse)
-    lock_release(&inode_open_lock);
+  /*if (!recurse)
+    lock_release(&inode_open_lock);*/
   return inode;
 }
 
 /* Reopens and returns INODE. */
 struct inode* inode_reopen(struct inode* inode) {
   if (inode != NULL) {
-    bool recurse = lock_held_by_current_thread(&inode_open_lock);
-    if (!recurse)
-      lock_acquire(&inode_open_lock);
+    //bool recurse = lock_held_by_current_thread(&inode_open_lock);
+    //if (!recurse)
+    //  lock_acquire(&inode_open_lock);
+    lock_acquire(&inode->lock);
     inode->open_cnt++;
-    if (!recurse)
-      lock_release(&inode_open_lock);
+    lock_release(&inode->lock);
+    //if (!recurse)
+    //  lock_release(&inode_open_lock);
   }
   return inode;
 }
@@ -454,11 +461,13 @@ block_sector_t inode_get_inumber(const struct inode* inode) { return inode->sect
    If INODE was also a removed inode, frees its blocks. */
 void inode_close(struct inode* inode) {
   /* Ignore null pointer. */
-  bool recurse = lock_held_by_current_thread(&inode_open_lock);
-  if (!recurse)
-    lock_acquire(&inode_open_lock);
+  //bool recurse = lock_held_by_current_thread(&inode_open_lock);
+  //if (!recurse)
+  //lock_acquire(&inode_open_lock);
   if (inode == NULL)
     return;
+  //bool recurse = lock_held_by_current_thread(&inode->lock);
+  //if (!recurse)
   //lock_acquire(&inode->lock);
   /* Release resources if this was the last opener. */
   if (--inode->open_cnt == 0) {
@@ -477,9 +486,11 @@ void inode_close(struct inode* inode) {
     int len = inode_length(inode);
     free(inode);
   }
+  //if (!recurse)
   //lock_release(&inode->lock);
-  if (!recurse)
-    lock_release(&inode_open_lock);
+  //lock_release(&inode->lock);
+  //if (!recurse)
+  //lock_release(&inode_open_lock);
 }
 
 /* Marks INODE to be deleted when it is closed by the last caller who
@@ -498,6 +509,8 @@ off_t inode_read_at(struct inode* inode, void* buffer_, off_t size, off_t offset
   uint8_t* buffer = buffer_;
   off_t bytes_read = 0;
   char* temp = malloc(sizeof(char) * 512);
+  if (temp == NULL)
+    return 0;
   // uint8_t* bounce = NULL;
 
   while (size > 0) {
@@ -553,6 +566,8 @@ off_t inode_write_at(struct inode* inode, const void* buffer_, off_t size, off_t
   off_t bytes_written = 0;
   bool success = true;
   char* temp = malloc(sizeof(char) * 512);
+  if (temp == NULL)
+    return 0;
   // uint8_t* bounce = NULL;
 
   if (inode->deny_write_cnt)
@@ -638,8 +653,22 @@ void inode_allow_write(struct inode* inode) {
 
 /* Returns the length, in bytes, of INODE's data. */
 off_t inode_length(const struct inode* inode) {
-  char* buffer = malloc(sizeof(char) * 512);
+  char buffer[512];
   buffer_read(fs_device, inode->sector, (void*)buffer);
   struct inode_disk* id = (struct inode_disk*)buffer;
   return id->length;
+}
+
+void set_directory(const struct inode* inode, bool isdir) {
+  char buffer[512];
+  buffer_read(fs_device, inode->sector, (void*)buffer);
+  struct inode_disk* id = (struct inode_disk*)buffer;
+  id->is_directory = isdir;
+}
+
+bool inode_is_dir(const struct inode* inode) {
+  char buffer[512];
+  buffer_read(fs_device, inode->sector, (void*)buffer);
+  struct inode_disk* id = (struct inode_disk*)buffer;
+  return id->is_directory == 1;
 }

@@ -6,6 +6,7 @@
 #include "filesys/free-map.h"
 #include "filesys/inode.h"
 #include "filesys/directory.h"
+#include "threads/thread.h"
 
 /* Partition that contains the file system. */
 struct block* fs_device;
@@ -38,12 +39,14 @@ void filesys_done(void) { free_map_close(); }
    or if internal memory allocation fails. */
 bool filesys_create(const char* name, off_t initial_size) {
   block_sector_t inode_sector = 0;
-  struct dir* dir = dir_open_root();
+  struct thread* ct = thread_current();
+  struct dir* dir = (ct->cwd == NULL ? dir_open_root() : ct->cwd);
   bool success = (dir != NULL && free_map_allocate(1, &inode_sector) &&
                   inode_create(inode_sector, initial_size) && dir_add(dir, name, inode_sector));
   if (!success && inode_sector != 0)
     free_map_release(inode_sector, 1);
-  dir_close(dir);
+  if (ct->cwd == NULL) // only close if not cwd
+    dir_close(dir);
 
   return success;
 }

@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <syscall-nr.h>
 #include <stdlib.h>
+#include <string.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
@@ -11,7 +12,9 @@
 #include "threads/malloc.h"
 #include "filesys/filesys.h"
 #include "filesys/file.h"
-
+#include "filesys/inode.h"
+#include "filesys/directory.h"
+#include "filesys/buffer.h"
 static struct lock filesys_lock;
 static struct lock p_exec_lock;
 static void syscall_handler(struct intr_frame*);
@@ -23,7 +26,8 @@ bool str_checker(void*, struct thread*);
 bool val_check(void*, struct thread*);
 bool pointer_check(void*, struct thread*);
 struct file_info* get_file_info(int);
-
+struct inode* path_to_inode(const char*);
+bool mkdir(const char* input_path);
 void syscall_init(void) {
   intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall");
   lock_init(&filesys_lock);
@@ -75,12 +79,19 @@ bool correct_args(uint32_t* args) {
     case SYS_CLOSE:
     case SYS_FILESIZE:
     case SYS_TELL:
+    case SYS_ISDIR:
+    case SYS_INUMBER:
       return val_check(&args[1], ct);
+    case SYS_READDIR:
+      return val_check(&args[1], ct) && pointer_check(&args[2], ct) &&
+             str_checker((void*)args[2], ct);
     case SYS_HALT:
       return true;
     case SYS_REMOVE:
     case SYS_EXEC:
     case SYS_OPEN:
+    case SYS_CHDIR:
+    case SYS_MKDIR:
       return pointer_check(&args[1], ct) && str_checker((void*)args[1], ct);
     case SYS_CREATE:
       return pointer_check(&args[1], ct) && val_check(&args[2], ct) && str_checker(&args[1], ct);
@@ -155,6 +166,89 @@ struct file_info* get_file_info(int fd) {
   return NULL;
 }
 
+/* PROJECT 3 */
+/* Parses path to find inode. 
+   returns NULL on failure. 
+   Caller must free inode. */
+struct inode* path_to_inode(const char* input_path) {
+  char* saveptr = NULL;
+  char* name;
+  bool dir_found = false;
+  struct inode* inode = NULL;
+  struct thread* curr_thread = thread_current();
+  struct dir* dir;
+  char path[100];
+  strlcpy(path, input_path, sizeof(path));
+  if (path == NULL)
+    return NULL; /* Return if path is NULL */
+
+  if (path[0] == '/')
+    dir = dir_open_root();
+  else
+    dir = curr_thread->cwd;
+
+  name = strtok_r(path, "/", &saveptr);
+  while (name) {
+    dir_found = dir_lookup(dir, name, &inode);
+    if (!dir_found)
+      return NULL;
+    dir_close(dir);
+    name = strtok_r(NULL, "/", &saveptr);
+    if (name != NULL) {
+      if (!inode_is_dir(inode)) { /* if not last, inode must be dir. */
+        free(inode);
+        return NULL;
+      } else {
+        dir = dir_open(inode);
+      }
+    }
+  }
+  return inode;
+}
+
+bool mkdir(const char* input_path) {
+  char* saveptr = NULL;
+  char* name;
+  char* next_name;
+  bool dir_found = false;
+  struct inode* inode = NULL;
+  struct thread* curr_thread = thread_current();
+  struct dir* dir;
+  char path[100];
+  strlcpy(path, input_path, sizeof(path));
+  if (path == NULL)
+    return false; /* Return if path is NULL */
+
+  if (path[0] == '/')
+    dir = dir_open_root();
+  else
+    dir = curr_thread->cwd;
+
+  name = strtok_r(path, "/", &saveptr);
+  while (name) {
+    next_name = strtok_r(NULL, "/", &saveptr);
+    dir_found = dir_lookup(dir, name, &inode);
+    if (!dir_found && next_name == NULL)
+      break; // directory does not exist yet
+    if (dir_found && next_name == NULL)
+      return false; // directory already exists
+    if (!dir_found)
+      return false; // a directory along the path does not exist
+    dir_close(dir);
+    name = next_name;
+    if (name != NULL) {
+      if (!inode_is_dir(inode)) { /* if not last, inode must be dir. */
+        free(inode);
+        return false;
+      } else {
+        dir = dir_open(inode);
+      }
+    }
+  }
+
+  return false;
+}
+
 static void syscall_handler(struct intr_frame* f UNUSED) {
   uint32_t* args = ((uint32_t*)f->esp);
   if (args == NULL || !is_user_vaddr((void*)args) ||
@@ -164,6 +258,8 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
 
   switch (args[0]) {
     struct file_info* fi;
+    struct inode* inode;
+    struct thread* curr_thread;
     case SYS_EXIT:
       f->eax = args[1];
       system_exit(args[1]);
@@ -177,13 +273,14 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       f->eax = args[1] + 1;
       break;
     case SYS_HALT:
+      buffer_flush(); // Flush the Buffer
       shutdown_power_off();
       break;
     case SYS_WAIT:
       f->eax = process_wait(args[1]);
       break;
     case SYS_WRITE:
-      lock_acquire(&filesys_lock);
+      // lock_acquire(&filesys_lock);
       if (args[1] == 0) {
         system_exit(-1);
         break;
@@ -196,14 +293,14 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
         } else {
           f->eax = -1;
         }
-        lock_release(&filesys_lock);
+        //lock_release(&filesys_lock);
         break;
       }
 
-      lock_release(&filesys_lock);
+      //lock_release(&filesys_lock);
       break;
     case SYS_OPEN: {
-      lock_acquire(&filesys_lock);
+      //lock_acquire(&filesys_lock);
       struct file* opened_file = filesys_open((char*)args[1]);
       if (!opened_file) {
         f->eax = -1;
@@ -215,11 +312,11 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
         list_push_back(thread_current()->files, &(fi->elem));
         f->eax = fi->fd;
       }
-      lock_release(&filesys_lock);
+      //lock_release(&filesys_lock);
       break;
     }
     case SYS_CLOSE:
-      lock_acquire(&filesys_lock);
+      //lock_acquire(&filesys_lock);
       fi = get_file_info(args[1]);
       if (fi) {
         file_close(fi->fs);
@@ -228,10 +325,10 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       } else {
         system_exit(-1);
       }
-      lock_release(&filesys_lock);
+      //lock_release(&filesys_lock);
       break;
     case SYS_READ:
-      lock_acquire(&filesys_lock);
+      //lock_acquire(&filesys_lock);
       fi = get_file_info(args[1]);
       if (fi) {
         f->eax = file_read(fi->fs, (void*)args[2], args[3]);
@@ -239,47 +336,77 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
         f->eax = -1;
         system_exit(-1);
       }
-      lock_release(&filesys_lock);
+      //lock_release(&filesys_lock);
       break;
     case SYS_REMOVE:
-      lock_acquire(&filesys_lock);
+      //lock_acquire(&filesys_lock);
       f->eax = filesys_remove((char*)args[1]);
-      lock_release(&filesys_lock);
+      //lock_release(&filesys_lock);
       break;
     case SYS_CREATE:
-      lock_acquire(&filesys_lock);
+      //lock_acquire(&filesys_lock);
       f->eax = filesys_create((char*)args[1], (off_t)args[2]);
-      lock_release(&filesys_lock);
+      //lock_release(&filesys_lock);
       break;
     case SYS_TELL:
-      lock_acquire(&filesys_lock);
+      //lock_acquire(&filesys_lock);
       fi = get_file_info(args[1]);
       if (fi) {
         file_tell(fi->fs);
       } else {
         f->eax = -1;
       }
-      lock_release(&filesys_lock);
+      //lock_release(&filesys_lock);
       break;
     case SYS_SEEK:
-      lock_acquire(&filesys_lock);
+      //lock_acquire(&filesys_lock);
       fi = get_file_info(args[1]);
       if (fi) {
         file_seek(fi->fs, args[2]);
       } else {
         system_exit(-1);
       }
-      lock_release(&filesys_lock);
+      //lock_release(&filesys_lock);
       break;
     case SYS_FILESIZE:
-      lock_acquire(&filesys_lock);
+      //lock_acquire(&filesys_lock);
       fi = get_file_info(args[1]);
       if (fi) {
         f->eax = file_length(fi->fs);
       } else {
         f->eax = -1;
       }
-      lock_release(&filesys_lock);
+      //lock_release(&filesys_lock);
+      break;
+    case SYS_CHDIR:
+      curr_thread = thread_current();
+      inode = path_to_inode((char*)args[1]);
+      if (inode_is_dir(inode)) {
+        if (curr_thread->cwd != NULL) {
+          dir_close(curr_thread->cwd);
+        }
+        curr_thread->cwd = dir_open(inode);
+        f->eax = true;
+      } else {
+        f->eax = false;
+      }
+      break;
+    case SYS_MKDIR:
+      //TODO
+      break;
+    case SYS_READDIR:
+      //TODO
+      break;
+    case SYS_ISDIR:
+      //TODO
+      break;
+    case SYS_INUMBER:
+      fi = get_file_info(args[1]);
+      if (fi) {
+        f->eax = inode_get_inumber(file_get_inode(get_file_info(args[1])->fs));
+      } else {
+        system_exit(-1);
+      }
       break;
   }
 }

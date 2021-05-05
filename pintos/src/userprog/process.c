@@ -28,6 +28,7 @@ struct args {
   char* file_name;
   struct p_wait_info* pwi;
   struct list* files;
+  struct dir* cwd;
 };
 
 /* Starts a new thread running a user program loaded from
@@ -50,6 +51,7 @@ tid_t process_execute(const char* file_name) {
   if ((argument->file_name) == NULL) {
     return TID_ERROR;
   }
+  argument->cwd = curr_thread->cwd;
 
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
@@ -93,6 +95,7 @@ static void start_process(void* argument) {
   char* file_name = argument_val->file_name;
   struct p_wait_info* pwi_val = argument_val->pwi;
   struct list* files = argument_val->files;
+  struct dir* cwd = argument_val->cwd;
   struct intr_frame if_;
   bool success;
 
@@ -123,7 +126,10 @@ static void start_process(void* argument) {
   list_init(&(curr_thread->child_pwis));            /* intialize pwi list  */
   curr_thread->files = malloc(sizeof(struct list)); /* malloc list for file  */
   list_init(curr_thread->files);                    /* inializes file list */
-
+  if (cwd != NULL)
+    curr_thread->cwd = dir_reopen(cwd);
+  else
+    curr_thread->cwd = dir_open_root();
   if (files != NULL && files->head.next != NULL) {
     struct list_elem* iter;
     struct file_info* fi;
@@ -177,7 +183,6 @@ static void start_process(void* argument) {
   file_deny_write(curr_thread->self);
   sema_up(&(pwi_val->wait_sem));
   free(file_name);
-
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
      threads/intr-stubs.S).  Because intr_exit takes all of its
