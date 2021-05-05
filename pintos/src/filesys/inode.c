@@ -664,6 +664,7 @@ void set_directory(const struct inode* inode, bool isdir) {
   buffer_read(fs_device, inode->sector, (void*)buffer);
   struct inode_disk* id = (struct inode_disk*)buffer;
   id->is_directory = isdir;
+  buffer_write(fs_device, inode->sector, (void*)buffer);
 }
 
 bool inode_is_dir(const struct inode* inode) {

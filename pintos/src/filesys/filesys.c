@@ -51,18 +51,38 @@ bool filesys_create(const char* name, off_t initial_size) {
   return success;
 }
 
+bool filesys_create_in_dir(const char* name, off_t initial_size, struct dir* dir) {
+  block_sector_t inode_sector = 0;
+  bool success = (dir != NULL && free_map_allocate(1, &inode_sector) &&
+                  inode_create(inode_sector, initial_size) && dir_add(dir, name, inode_sector));
+  if (!success && inode_sector != 0)
+    free_map_release(inode_sector, 1);
+  return success;
+}
+
+bool filesys_create_dir_in_dir(const char* name, off_t initial_size, struct dir* dir) {
+  block_sector_t inode_sector = 0;
+  bool success = (dir != NULL && free_map_allocate(1, &inode_sector) &&
+                  inode_create_dir(inode_sector, initial_size) && dir_add(dir, name, inode_sector));
+  if (!success && inode_sector != 0)
+    free_map_release(inode_sector, 1);
+  return success;
+}
+
 /* Opens the file with the given NAME.
    Returns the new file if successful or a null pointer
    otherwise.
    Fails if no file named NAME exists,
    or if an internal memory allocation fails. */
 struct file* filesys_open(const char* name) {
-  struct dir* dir = dir_open_root();
+  struct thread* ct = thread_current();
+  struct dir* dir = (ct->cwd == NULL ? dir_open_root() : ct->cwd);
   struct inode* inode = NULL;
 
   if (dir != NULL)
     dir_lookup(dir, name, &inode);
-  dir_close(dir);
+  if (ct->cwd == NULL)
+    dir_close(dir);
 
   return file_open(inode);
 }

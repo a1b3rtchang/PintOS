@@ -28,6 +28,8 @@ bool pointer_check(void*, struct thread*);
 struct file_info* get_file_info(int);
 struct inode* path_to_inode(const char*);
 bool mkdir(const char* input_path);
+bool get_dir_and_name(const char*, struct dir**, char**);
+bool sys_create(const char*, off_t);
 void syscall_init(void) {
   intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall");
   lock_init(&filesys_lock);
@@ -182,10 +184,11 @@ struct inode* path_to_inode(const char* input_path) {
   if (path == NULL)
     return NULL; /* Return if path is NULL */
 
-  if (path[0] == '/')
+  if (path[0] == '/') {
     dir = dir_open_root();
-  else
-    dir = curr_thread->cwd;
+  } else {
+    dir = dir_reopen(curr_thread->cwd);
+  }
 
   name = strtok_r(path, "/", &saveptr);
   while (name) {
@@ -206,47 +209,75 @@ struct inode* path_to_inode(const char* input_path) {
   return inode;
 }
 
-bool mkdir(const char* input_path) {
+bool get_dir_and_name(const char* input_path, struct dir** dir, char** name) {
   char* saveptr = NULL;
-  char* name;
   char* next_name;
   bool dir_found = false;
   struct inode* inode = NULL;
+  char* temp;
   struct thread* curr_thread = thread_current();
-  struct dir* dir;
   char path[100];
   strlcpy(path, input_path, sizeof(path));
   if (path == NULL)
     return false; /* Return if path is NULL */
 
-  if (path[0] == '/')
-    dir = dir_open_root();
-  else
-    dir = curr_thread->cwd;
+  if (path[0] == '/') {
+    *dir = dir_open_root();
+  } else {
+    *dir = dir_reopen(curr_thread->cwd);
+  }
 
-  name = strtok_r(path, "/", &saveptr);
-  while (name) {
+  *name = strtok_r(path, "/", &saveptr);
+  while (*name) {
     next_name = strtok_r(NULL, "/", &saveptr);
-    dir_found = dir_lookup(dir, name, &inode);
+    dir_found = dir_lookup(*dir, *name, &inode);
     if (!dir_found && next_name == NULL)
       break; // directory does not exist yet
     if (dir_found && next_name == NULL)
       return false; // directory already exists
     if (!dir_found)
       return false; // a directory along the path does not exist
-    dir_close(dir);
-    name = next_name;
-    if (name != NULL) {
+    dir_close(*dir);
+    *name = next_name;
+    if (*name != NULL) {
       if (!inode_is_dir(inode)) { /* if not last, inode must be dir. */
         free(inode);
         return false;
       } else {
-        dir = dir_open(inode);
+        *dir = dir_open(inode);
       }
     }
   }
+  temp = malloc(sizeof(char) * strlen(*name) + 1);
+  strlcpy(temp, *name, strlen(*name) + 1);
+  *name = temp;
+  return true;
+}
 
-  return false;
+bool mkdir(const char* input_path) {
+  bool success;
+  struct dir* dir = NULL;
+  char* name = NULL;
+  success = get_dir_and_name(input_path, &dir, &name);
+  if (success) {
+    success = filesys_create_dir_in_dir(name, 0, dir);
+    dir_close(dir);
+  }
+  free(name);
+  return success;
+}
+
+bool sys_create(const char* input_path, off_t initial_size) {
+  bool success;
+  struct dir* dir = NULL;
+  char* name = NULL;
+  success = get_dir_and_name(input_path, &dir, &name);
+  if (success) {
+    success = filesys_create_in_dir(name, initial_size, dir);
+    dir_close(dir);
+  }
+  free(name);
+  return success;
 }
 
 static void syscall_handler(struct intr_frame* f UNUSED) {
@@ -345,7 +376,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       break;
     case SYS_CREATE:
       //lock_acquire(&filesys_lock);
-      f->eax = filesys_create((char*)args[1], (off_t)args[2]);
+      f->eax = sys_create((char*)args[1], (off_t)args[2]);
       //lock_release(&filesys_lock);
       break;
     case SYS_TELL:
@@ -392,7 +423,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       }
       break;
     case SYS_MKDIR:
-      //TODO
+      f->eax = mkdir((char*)args[1]);
       break;
     case SYS_READDIR:
       //TODO
