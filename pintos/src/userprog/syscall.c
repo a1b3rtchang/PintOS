@@ -290,9 +290,9 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       system_exit(args[1]);
       break;
     case SYS_EXEC:
-      lock_acquire(&p_exec_lock);
+      //lock_acquire(&p_exec_lock);
       f->eax = process_execute((char*)args[1]);
-      lock_release(&p_exec_lock);
+      //lock_release(&p_exec_lock);
       break;
     case SYS_PRACTICE:
       f->eax = args[1] + 1;
@@ -313,7 +313,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
         putbuf((char*)args[2], args[3]);
       } else {
         fi = get_file_info(args[1]);
-        if (fi && !(inode_is_dir(file_get_inode(fi->fs)))) {
+        if (fi && fi->directory == NULL) {
           f->eax = file_write(fi->fs, (void*)args[2], args[3]);
         } else {
           f->eax = -1;
@@ -368,7 +368,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     case SYS_READ:
       // lock_acquire(&filesys_lock);
       fi = get_file_info(args[1]);
-      if (fi && !(inode_is_dir(file_get_inode(fi->fs)))) {
+      if (fi && fi->directory == NULL) {
         f->eax = file_read(fi->fs, (void*)args[2], args[3]);
       } else {
         f->eax = -1;
@@ -445,7 +445,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       if (fi && fi->directory) {
         f->eax = dir_readdir(fi->directory, args[2]);
       } else {
-        lock_release(&filesys_lock);
+        //lock_release(&filesys_lock);
         system_exit(-1);
       }
       // lock_release(&filesys_lock);
@@ -465,9 +465,16 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       // lock_acquire(&filesys_lock);
       fi = get_file_info(args[1]);
       if (fi) {
-        f->eax = inode_get_inumber(file_get_inode(fi->fs));
+        if (fi->fs) {
+          f->eax = inode_get_inumber(file_get_inode(fi->fs));
+        } else if (fi->directory) {
+          f->eax = inode_get_inumber(dir_get_inode(fi->directory));
+        } else {
+          system_exit(-1);
+        }
+
       } else {
-        lock_release(&filesys_lock);
+        //lock_release(&filesys_lock);
         system_exit(-1);
       }
       // lock_release(&filesys_lock);
