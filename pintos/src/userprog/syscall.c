@@ -313,7 +313,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
         putbuf((char*)args[2], args[3]);
       } else {
         fi = get_file_info(args[1]);
-        if (fi && !inode_is_dir(file_get_inode(fi->fs))) {
+        if (fi && !(inode_is_dir(file_get_inode(fi->fs)))) {
           f->eax = file_write(fi->fs, (void*)args[2], args[3]);
         } else {
           f->eax = -1;
@@ -322,12 +322,24 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
         break;
       }
 
-      // lock_release(&filesys_lock); 
+      // lock_release(&filesys_lock);
       break;
     case SYS_OPEN: {
       // lock_acquire(&filesys_lock);
-      struct file* opened_file = filesys_open((char*)args[1]);
-      if (!opened_file) {
+      struct file* opened_file = NULL;
+      struct dir* opened_dir = NULL;
+      struct inode* inode_val = path_to_inode((char*)args[1]);
+      if (inode_val) {
+        if (inode_is_dir(inode_val)) {
+          opened_dir = dir_open(inode_val);
+        } else {
+          opened_file = filesys_open((char*)args[1]);
+        }
+      } else {
+        f->eax = -1;
+        break;
+      }
+      if (!opened_file && !opened_dir) {
         f->eax = -1;
       } else {
         fi = malloc(sizeof(struct file_info));
@@ -335,6 +347,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
         thread_current()->fd_count++;
         fi->fs = opened_file;
         list_push_back(thread_current()->files, &(fi->elem));
+        fi->directory = opened_dir;
         f->eax = fi->fd;
       }
       // lock_release(&filesys_lock);
@@ -355,7 +368,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     case SYS_READ:
       // lock_acquire(&filesys_lock);
       fi = get_file_info(args[1]);
-      if (fi) {
+      if (fi && !(inode_is_dir(file_get_inode(fi->fs)))) {
         f->eax = file_read(fi->fs, (void*)args[2], args[3]);
       } else {
         f->eax = -1;
