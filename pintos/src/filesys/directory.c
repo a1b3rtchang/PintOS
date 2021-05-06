@@ -159,6 +159,9 @@ bool dir_remove(struct dir* dir, const char* name) {
   struct inode* inode = NULL;
   struct inode* root = NULL;
   struct inode* cwd = NULL;
+  struct dir* cwd_dir = NULL;
+  struct inode* parent = NULL;
+  bool remove_parent = false;
   bool success = false;
   off_t ofs;
 
@@ -173,8 +176,15 @@ bool dir_remove(struct dir* dir, const char* name) {
   inode = inode_open(e.inode_sector);
   root = dir_get_inode(dir_open_root());
   cwd = dir_get_inode(thread_current()->cwd);
+  if (inode_get_inumber(cwd) != inode_get_inumber(root)) {
+    cwd_dir = dir_reopen(thread_current()->cwd);
+    dir_lookup(cwd_dir, "..", &parent);
+    remove_parent = inode_get_inumber(inode) == inode_get_inumber(parent);
+    dir_close(cwd_dir);
+  }
+
   if (inode == NULL || inode_get_inumber(inode) == inode_get_inumber(root) ||
-      inode_get_inumber(inode) == inode_get_inumber(cwd))
+      inode_get_inumber(inode) == inode_get_inumber(cwd) || remove_parent)
     goto done;
 
   /* Erase directory entry. */
@@ -188,7 +198,6 @@ bool dir_remove(struct dir* dir, const char* name) {
 
 done:
   inode_close(root);
-  inode_close(cwd);
   inode_close(inode);
   return success;
 }
@@ -201,7 +210,7 @@ bool dir_readdir(struct dir* dir, char name[NAME_MAX + 1]) {
 
   while (inode_read_at(dir->inode, &e, sizeof e, dir->pos) == sizeof e) {
     dir->pos += sizeof e;
-    if (e.in_use) {
+    if (e.in_use && !(strcmp(e.name, "..") == 0)) {
       strlcpy(name, e.name, NAME_MAX + 1);
       return true;
     }
