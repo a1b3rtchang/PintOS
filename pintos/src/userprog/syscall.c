@@ -87,8 +87,7 @@ bool correct_args(uint32_t* args) {
     case SYS_INUMBER:
       return val_check(&args[1], ct);
     case SYS_READDIR: {
-      bool ret_val =
-          val_check(&args[1], ct) && pointer_check(&args[2], ct);
+      bool ret_val = val_check(&args[1], ct) && pointer_check(&args[2], ct);
       if (!ret_val)
         return false;
       /* Checks that buffer args[2] can actually store the size given in args[3] */
@@ -269,30 +268,10 @@ struct file_info* get_file_info(int fd) {
 //   return true;
 // }
 
-bool mkdir(const char* input_path) {
-  bool success;
-  struct dir* dir = NULL;
-  char* name = NULL;
-  success = get_dir_and_name(input_path, &dir, &name);
-  if (success) {
-    success = filesys_create_dir_in_dir(name, 0, dir);
-    dir_close(dir);
-  }
-  free(name);
-  return success;
-}
+bool mkdir(const char* input_path) { return filesys_create_dir_in_dir(input_path, 0); }
 
 bool sys_create(const char* input_path, off_t initial_size) {
-  bool success;
-  struct dir* dir = NULL;
-  char* name = NULL;
-  success = get_dir_and_name(input_path, &dir, &name);
-  if (success) {
-    success = filesys_create_in_dir(name, initial_size, dir);
-    dir_close(dir);
-    free(name);
-  }
-  return success;
+  return filesys_create_in_dir(input_path, initial_size);
 }
 
 static void syscall_handler(struct intr_frame* f UNUSED) {
@@ -326,7 +305,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       f->eax = process_wait(args[1]);
       break;
     case SYS_WRITE:
-      // lock_acquire(&filesys_lock);
+      lock_acquire(&filesys_lock);
       if (args[1] == 0) {
         system_exit(-1);
         break;
@@ -334,19 +313,19 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
         putbuf((char*)args[2], args[3]);
       } else {
         fi = get_file_info(args[1]);
-        if (fi) {
+        if (fi && !inode_is_dir(file_get_inode(fi->fs))) {
           f->eax = file_write(fi->fs, (void*)args[2], args[3]);
         } else {
           f->eax = -1;
         }
-        //lock_release(&filesys_lock);
+        lock_release(&filesys_lock);
         break;
       }
 
-      //lock_release(&filesys_lock);
+      lock_release(&filesys_lock);
       break;
     case SYS_OPEN: {
-      //lock_acquire(&filesys_lock);
+      lock_acquire(&filesys_lock);
       struct file* opened_file = filesys_open((char*)args[1]);
       if (!opened_file) {
         f->eax = -1;
@@ -358,11 +337,11 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
         list_push_back(thread_current()->files, &(fi->elem));
         f->eax = fi->fd;
       }
-      //lock_release(&filesys_lock);
+      lock_release(&filesys_lock);
       break;
     }
     case SYS_CLOSE:
-      //lock_acquire(&filesys_lock);
+      lock_acquire(&filesys_lock);
       fi = get_file_info(args[1]);
       if (fi) {
         file_close(fi->fs);
@@ -371,10 +350,10 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       } else {
         system_exit(-1);
       }
-      //lock_release(&filesys_lock);
+      lock_release(&filesys_lock);
       break;
     case SYS_READ:
-      //lock_acquire(&filesys_lock);
+      lock_acquire(&filesys_lock);
       fi = get_file_info(args[1]);
       if (fi) {
         f->eax = file_read(fi->fs, (void*)args[2], args[3]);
@@ -382,88 +361,103 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
         f->eax = -1;
         system_exit(-1);
       }
-      //lock_release(&filesys_lock);
+      lock_release(&filesys_lock);
       break;
     case SYS_REMOVE:
-      //lock_acquire(&filesys_lock);
+      lock_acquire(&filesys_lock);
       f->eax = filesys_remove((char*)args[1]);
-      //lock_release(&filesys_lock);
+      lock_release(&filesys_lock);
       break;
     case SYS_CREATE:
-      //lock_acquire(&filesys_lock);
+      lock_acquire(&filesys_lock);
       f->eax = sys_create((char*)args[1], (off_t)args[2]);
-      //lock_release(&filesys_lock);
+      lock_release(&filesys_lock);
       break;
     case SYS_TELL:
-      //lock_acquire(&filesys_lock);
+      lock_acquire(&filesys_lock);
       fi = get_file_info(args[1]);
       if (fi) {
         file_tell(fi->fs);
       } else {
         f->eax = -1;
       }
-      //lock_release(&filesys_lock);
+      lock_release(&filesys_lock);
       break;
     case SYS_SEEK:
-      //lock_acquire(&filesys_lock);
+      lock_acquire(&filesys_lock);
       fi = get_file_info(args[1]);
       if (fi) {
         file_seek(fi->fs, args[2]);
       } else {
         system_exit(-1);
       }
-      //lock_release(&filesys_lock);
+      lock_release(&filesys_lock);
       break;
     case SYS_FILESIZE:
-      //lock_acquire(&filesys_lock);
+      lock_acquire(&filesys_lock);
       fi = get_file_info(args[1]);
       if (fi) {
         f->eax = file_length(fi->fs);
       } else {
         f->eax = -1;
       }
-      //lock_release(&filesys_lock);
+      lock_release(&filesys_lock);
       break;
     case SYS_CHDIR:
+      lock_acquire(&filesys_lock);
       curr_thread = thread_current();
       inode = path_to_inode((char*)args[1]);
-      if (inode_is_dir(inode)) {
+      if (inode && inode_is_dir(inode)) {
         if (curr_thread->cwd != NULL) {
           dir_close(curr_thread->cwd);
         }
         curr_thread->cwd = dir_open(inode);
         f->eax = true;
       } else {
+        if (inode)
+          inode_close(inode);
         f->eax = false;
       }
+      lock_release(&filesys_lock);
       break;
     case SYS_MKDIR:
+      lock_acquire(&filesys_lock);
       f->eax = mkdir((char*)args[1]);
+      lock_release(&filesys_lock);
       break;
     case SYS_READDIR:
       // error check size of name buffer above
+      lock_acquire(&filesys_lock);
       fi = get_file_info(args[1]);
       if (fi && fi->directory) {
         f->eax = dir_readdir(fi->directory, args[2]);
       } else {
+        lock_release(&filesys_lock);
         system_exit(-1);
       }
+      lock_release(&filesys_lock);
       break;
     case SYS_ISDIR:
+      lock_acquire(&filesys_lock);
       fi = get_file_info(args[1]);
       if (fi) {
         f->eax = inode_is_dir(file_get_inode(fi->fs));
       } else {
+        lock_release(&filesys_lock);
         system_exit(-1);
       }
+      lock_release(&filesys_lock);
       break;
     case SYS_INUMBER:
+      lock_acquire(&filesys_lock);
       fi = get_file_info(args[1]);
       if (fi) {
         f->eax = inode_get_inumber(file_get_inode(fi->fs));
       } else {
+        lock_release(&filesys_lock);
         system_exit(-1);
       }
+      lock_release(&filesys_lock);
       break;
   }
 }

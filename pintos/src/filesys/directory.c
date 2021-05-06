@@ -5,6 +5,7 @@
 #include "filesys/filesys.h"
 #include "filesys/inode.h"
 #include "threads/malloc.h"
+#include "threads/thread.h"
 
 /* A directory. */
 struct dir {
@@ -155,6 +156,8 @@ done:
 bool dir_remove(struct dir* dir, const char* name) {
   struct dir_entry e;
   struct inode* inode = NULL;
+  struct inode* root = NULL;
+  struct inode* cwd = NULL;
   bool success = false;
   off_t ofs;
 
@@ -167,7 +170,10 @@ bool dir_remove(struct dir* dir, const char* name) {
 
   /* Open inode. */
   inode = inode_open(e.inode_sector);
-  if (inode == NULL)
+  root = dir_get_inode(dir_open_root());
+  cwd = dir_get_inode(thread_current()->cwd);
+  if (inode == NULL || inode_get_inumber(inode) == inode_get_inumber(root) ||
+      inode_get_inumber(inode) == inode_get_inumber(cwd))
     goto done;
 
   /* Erase directory entry. */
@@ -180,6 +186,8 @@ bool dir_remove(struct dir* dir, const char* name) {
   success = true;
 
 done:
+  inode_close(root);
+  inode_close(cwd);
   inode_close(inode);
   return success;
 }
