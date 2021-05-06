@@ -130,7 +130,7 @@ int main(void) {
 
   /* Run actions specified on kernel command line. */
   run_actions(argv);
-
+  buffer_flush();
   /* Finish up. */
   shutdown();
   thread_exit();

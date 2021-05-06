@@ -287,6 +287,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     struct thread* curr_thread;
     case SYS_EXIT:
       f->eax = args[1];
+      buffer_flush();
       system_exit(args[1]);
       break;
     case SYS_EXEC:
@@ -313,7 +314,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
         putbuf((char*)args[2], args[3]);
       } else {
         fi = get_file_info(args[1]);
-        if (fi && fi->directory == NULL) {
+        if (fi && fi->fs != NULL) {
           f->eax = file_write(fi->fs, (void*)args[2], args[3]);
         } else {
           f->eax = -1;
@@ -454,7 +455,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       // lock_acquire(&filesys_lock);
       fi = get_file_info(args[1]);
       if (fi) {
-        f->eax = inode_is_dir(file_get_inode(fi->fs));
+        f->eax = fi->directory != NULL;
       } else {
         lock_release(&filesys_lock);
         system_exit(-1);
