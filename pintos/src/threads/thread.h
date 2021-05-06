@@ -26,13 +26,11 @@ typedef int tid_t;
 #define PRI_MAX 63     /* Highest priority. */
 
 /* A kernel thread or user process.
-
    Each thread structure is stored in its own 4 kB page.  The
    thread structure itself sits at the very bottom of the page
    (at offset 0).  The rest of the page is reserved for the
    thread's kernel stack, which grows downward from the top of
    the page (at offset 4 kB).  Here's an illustration:
-
         4 kB +---------------------------------+
              |          kernel stack           |
              |                |                |
@@ -54,22 +52,18 @@ typedef int tid_t;
              |               name              |
              |              status             |
         0 kB +---------------------------------+
-
    The upshot of this is twofold:
-
       1. First, `struct thread' must not be allowed to grow too
          big.  If it does, then there will not be enough room for
          the kernel stack.  Our base `struct thread' is only a
          few bytes in size.  It probably should stay well under 1
          kB.
-
       2. Second, kernel stacks must not be allowed to grow too
          large.  If a stack overflows, it will corrupt the thread
          state.  Thus, kernel functions should not allocate large
          structures or arrays as non-static local variables.  Use
          dynamic allocation with malloc() or palloc_get_page()
          instead.
-
    The first symptom of either of these problems will probably be
    an assertion failure in thread_current(), which checks that
    the `magic' member of the running thread's `struct thread' is
@@ -94,14 +88,12 @@ struct p_wait_info {
 struct file_info {
   int fd;
   struct file* fs;
+  struct dir* directory;
   struct list_elem elem;
 };
 
-struct list sleeping_threads;
-
 struct thread {
   /* New things */
-  int num_ticks;
   struct list child_pwis;
   struct p_wait_info* parent_pwi;
   struct list* files;
@@ -112,16 +104,10 @@ struct thread {
   enum thread_status status; /* Thread state. */
   char name[16];             /* Name (for debugging purposes). */
   int fd_count;
-  uint8_t* stack; /* Saved stack pointer. */
-  int priority;   /* Priority. */
-  /* Project 2 */
-  int effective_priority;
-  struct lock* waiting_lock;
-  struct list curr_locks;
-  /* Project 2 end */
-  struct list_elem allelem;   /* List element for all threads list. */
-  struct list_elem sleepelem; /* List element for sleeping thread list. */
-
+  uint8_t* stack;           /* Saved stack pointer. */
+  int priority;             /* Priority. */
+  struct list_elem allelem; /* List element for all threads list. */
+  struct dir* cwd;
   /* Shared between thread.c and synch.c. */
   struct list_elem elem; /* List element. */
 
@@ -142,15 +128,6 @@ extern bool thread_mlfqs;
 void thread_init(void);
 void thread_start(void);
 
-/* Project 2 */
-int get_effective_priority(struct thread* curr_thread);
-void set_effective_priority(struct thread* curr_thread, int priority);
-void donate_priority(struct lock* blocker);
-void set_priority_after_release(void);
-struct list_elem* max_priority_thread(struct list*);
-bool thread_less_aux(struct thread*, struct thread*);
-bool thread_less(const struct list_elem*, const struct list_elem*, void*);
-/* PROJECT 2 END */
 void thread_tick(void);
 void thread_print_stats(void);
 

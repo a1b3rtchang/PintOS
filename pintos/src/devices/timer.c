@@ -73,34 +73,14 @@ int64_t timer_ticks(void) {
    should be a value once returned by timer_ticks(). */
 int64_t timer_elapsed(int64_t then) { return timer_ticks() - then; }
 
-/* Compare thread num_ticks for list_insert_ordered */
-static bool less_list(const struct list_elem* et1, const struct list_elem* et2, void* aux) {
-  struct thread* t1 = list_entry(et1, struct thread, sleepelem);
-  struct thread* t2 = list_entry(et2, struct thread, sleepelem);
-  bool (*auxPtr)(const struct thread*, const struct thread*) = aux;
-  return auxPtr(t1, t2);
-}
-
-static bool less(struct thread* t1, struct thread* t2) {
-  if (t1->num_ticks < t2->num_ticks) {
-    return true;
-  }
-  return false;
-}
-
 /* Sleeps for approximately TICKS timer ticks.  Interrupts must
    be turned on. */
 void timer_sleep(int64_t ticks) {
-  enum intr_level lvl = intr_disable();
   int64_t start = timer_ticks();
-  struct thread* t = thread_current();
-  t->num_ticks = start + ticks;
-  list_insert_ordered(&sleeping_threads, &(t->sleepelem), less_list, less);
-  thread_block();
-  intr_set_level(lvl);
-  // ASSERT(intr_get_level() == INTR_ON);
-  // while (timer_elapsed(start) < ticks)
-  //   thread_yield();
+
+  ASSERT(intr_get_level() == INTR_ON);
+  while (timer_elapsed(start) < ticks)
+    thread_yield();
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -117,7 +97,6 @@ void timer_nsleep(int64_t ns) { real_time_sleep(ns, 1000 * 1000 * 1000); }
 
 /* Busy-waits for approximately MS milliseconds.  Interrupts need
    not be turned on.
-
    Busy waiting wastes CPU cycles, and busy waiting with
    interrupts off for the interval between timer ticks or longer
    will cause timer ticks to be lost.  Thus, use timer_msleep()
@@ -126,7 +105,6 @@ void timer_mdelay(int64_t ms) { real_time_delay(ms, 1000); }
 
 /* Sleeps for approximately US microseconds.  Interrupts need not
    be turned on.
-
    Busy waiting wastes CPU cycles, and busy waiting with
    interrupts off for the interval between timer ticks or longer
    will cause timer ticks to be lost.  Thus, use timer_usleep()
@@ -135,7 +113,6 @@ void timer_udelay(int64_t us) { real_time_delay(us, 1000 * 1000); }
 
 /* Sleeps execution for approximately NS nanoseconds.  Interrupts
    need not be turned on.
-
    Busy waiting wastes CPU cycles, and busy waiting with
    interrupts off for the interval between timer ticks or longer
    will cause timer ticks to be lost.  Thus, use timer_nsleep()
@@ -149,25 +126,6 @@ void timer_print_stats(void) { printf("Timer: %" PRId64 " ticks\n", timer_ticks(
 static void timer_interrupt(struct intr_frame* args UNUSED) {
   ticks++;
   thread_tick();
-  struct list_elem* iter;
-  struct thread* t;
-  bool higher_prio = false;
-  int curr_prio = thread_current()->priority;
-  for (iter = list_begin(&sleeping_threads); iter != list_end(&sleeping_threads); iter = list_next(iter)) {
-    t = list_entry(iter, struct thread, sleepelem);
-    if (timer_ticks() >= t->num_ticks) {
-      list_remove(iter);
-      thread_unblock(t);
-      if (t->priority > curr_prio) {
-        higher_prio = true;
-      }
-    } else {
-      break;
-    }
-  }
-  if (higher_prio) {
-    intr_yield_on_return();
-  }
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
@@ -189,7 +147,6 @@ static bool too_many_loops(unsigned loops) {
 
 /* Iterates through a simple loop LOOPS times, for implementing
    brief delays.
-
    Marked NO_INLINE because code alignment can significantly
    affect timings, so that if this function was inlined
    differently in different places the results would be difficult
@@ -202,7 +159,6 @@ static void NO_INLINE busy_wait(int64_t loops) {
 /* Sleep for approximately NUM/DENOM seconds. */
 static void real_time_sleep(int64_t num, int32_t denom) {
   /* Convert NUM/DENOM seconds into timer ticks, rounding down.
-
         (NUM / DENOM) s
      ---------------------- = NUM * TIMER_FREQ / DENOM ticks.
      1 s / TIMER_FREQ ticks
