@@ -55,17 +55,9 @@ bool filesys_create_in_dir(const char* input_path, off_t initial_size) {
   block_sector_t inode_sector = 0;
   struct dir* dir = NULL;
   char* name = NULL;
-  struct inode* dummy = NULL;
   bool success = get_dir_and_name(input_path, &dir, &name);
   if (!success)
     return false;
-  success = !dir_lookup(dir, name, &dummy);
-  if (!success) {
-    dir_close(dir);
-    free(dummy);
-    free(name);
-    return false;
-  }
   success = (dir != NULL && free_map_allocate(1, &inode_sector) &&
              inode_create(inode_sector, initial_size) && dir_add(dir, name, inode_sector));
   if (!success && inode_sector != 0)
