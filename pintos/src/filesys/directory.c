@@ -183,11 +183,17 @@ bool dir_remove(struct dir* dir, const char* name) {
     dir_close(cwd_dir);
   }
 
-  if (inode == NULL || inode_open_cnt(inode) > 1 ||
-      inode_get_inumber(inode) == inode_get_inumber(root) ||
-      inode_get_inumber(inode) == inode_get_inumber(cwd) || remove_parent)
+  if (inode == NULL || inode_get_inumber(inode) == inode_get_inumber(root) || remove_parent)
     goto done;
-
+  if (inode_is_dir(inode)) {
+    struct dir* empty = dir_open(inode);
+    char dummy[NAME_MAX + 1];
+    if (dir_readdir(empty, dummy)) {
+      dir_close(empty);
+      return false;
+    }
+    free(empty);
+  }
   /* Erase directory entry. */
   e.in_use = false;
   if (inode_write_at(dir->inode, &e, sizeof e, ofs) != sizeof e)

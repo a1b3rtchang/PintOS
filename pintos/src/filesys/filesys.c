@@ -8,6 +8,7 @@
 #include "filesys/free-map.h"
 #include "filesys/directory.h"
 #include "threads/thread.h"
+#include "threads/synch.h"
 
 /* Partition that contains the file system. */
 struct block* fs_device;
@@ -90,7 +91,6 @@ bool filesys_create_dir_in_dir(const char* input_path, off_t initial_size) {
   dummy = path_to_inode(input_path);
   struct dir* child = dir_open(dummy);
   dir_add(child, "..", inode_get_inumber(dir_get_inode(dir)));
-  inode_close(dummy);
   dir_close(dir);
   dir_close(child);
   return success;
@@ -102,7 +102,6 @@ bool filesys_create_dir_in_dir(const char* input_path, off_t initial_size) {
    Fails if no file named NAME exists,
    or if an internal memory allocation fails. */
 struct file* filesys_open(const char* input_path) {
-  //struct dir* dir = dir_open(ct->cwd == NULL ? dir_open_root() : ct->cwd);
   struct inode* inode = path_to_inode(input_path);
   return file_open(inode);
 }
@@ -153,8 +152,10 @@ struct inode* path_to_inode(const char* input_path) {
 
   if (path[0] == '/' || curr_thread->cwd == NULL) {
     dir = dir_open_root();
-  } else {
+  } else if (!inode_removed(dir_get_inode(curr_thread->cwd))) {
     dir = dir_reopen(curr_thread->cwd);
+  } else {
+    return NULL;
   }
 
   name = strtok_r(path, "/", &saveptr);
@@ -188,10 +189,12 @@ bool get_dir_and_name(const char* input_path, struct dir** dir, char** name) {
   if (path == NULL)
     return false; /* Return if path is NULL */
 
-  if (path[0] == '/' || curr_thread->cwd == NULL) {
+  if (path[0] == '/' || curr_thread->cwd == NULL) { // || curr_thread->cwd == NULL) {
     *dir = dir_open_root();
-  } else {
+  } else if (!inode_removed(dir_get_inode(curr_thread->cwd))) {
     *dir = dir_reopen(curr_thread->cwd);
+  } else {
+    return false;
   }
 
   *name = strtok_r(path, "/", &saveptr);
@@ -215,6 +218,7 @@ bool get_dir_and_name(const char* input_path, struct dir** dir, char** name) {
   }
   if (*name == NULL)
     return false;
+  /* don't close inode because inode is for dir */
   temp = malloc(sizeof(char) * strlen(*name) + 1);
   strlcpy(temp, *name, strlen(*name) + 1);
   *name = temp;
