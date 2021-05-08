@@ -391,7 +391,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       // lock_acquire(&filesys_lock);
       fi = get_file_info(args[1]);
       if (fi) {
-        file_tell(fi->fs);
+        f->eax = file_tell(fi->fs);
       } else {
         f->eax = -1;
       }

@@ -673,3 +673,5 @@ bool inode_is_dir(const struct inode* inode) {
   struct inode_disk* id = (struct inode_disk*)buffer;
   return id->is_directory == 1;
 }
+
+int inode_open_cnt(const struct inode* inode) { return inode->open_cnt; }

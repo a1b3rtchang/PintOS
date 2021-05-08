@@ -183,7 +183,8 @@ bool dir_remove(struct dir* dir, const char* name) {
     dir_close(cwd_dir);
   }
 
-  if (inode == NULL || inode_get_inumber(inode) == inode_get_inumber(root) ||
+  if (inode == NULL || inode_open_cnt(inode) > 1 ||
+      inode_get_inumber(inode) == inode_get_inumber(root) ||
       inode_get_inumber(inode) == inode_get_inumber(cwd) || remove_parent)
     goto done;
 
