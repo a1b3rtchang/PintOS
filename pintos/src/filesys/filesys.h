@@ -21,6 +21,7 @@ bool filesys_remove(const char* name);
 bool filesys_create_in_dir(const char*, off_t);
 bool filesys_create_dir_in_dir(const char*, off_t);
 struct inode* path_to_inode(const char*);
-bool get_dir_and_name(const char*, struct dir**, char**);
+bool get_dir_and_name(const char*, struct dir**,
+                      char**); // find file in dir given name and directory
 
 #endif /* filesys/filesys.h */

@@ -3,6 +3,7 @@
 
 #include "devices/block.h"
 #include "threads/synch.h"
+
 struct buffer {
   block_sector_t sect_num;
   char data[BLOCK_SECTOR_SIZE];
@@ -17,4 +18,5 @@ void buffer_read(struct block*, block_sector_t, void*);
 void buffer_write(struct block*, block_sector_t, void*);
 void buffer_flush(void);
 void buffer_evict(block_sector_t);
+
 #endif

@@ -181,7 +181,7 @@ void buffer_flush() { // called during filesys_done
   for (int i = 0; i < 64; i++) {
     cache[i].valid = 0;
     if (cache[i].dirty == 1) {
-      write_back(&cache[i]); // write the entire
+      write_back(&cache[i]); // write the entire cache
     }
   }
 }
