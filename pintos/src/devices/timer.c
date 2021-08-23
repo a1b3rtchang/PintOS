@@ -9,7 +9,6 @@
 #include "threads/thread.h"
 
 /* See [8254] for hardware details of the 8254 timer chip. */
-
 #if TIMER_FREQ < 19
 #error 8254 timer requires TIMER_FREQ >= 19
 #endif
